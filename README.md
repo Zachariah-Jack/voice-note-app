@@ -77,8 +77,5 @@ $env:JAVA_HOME='path-to-jdk17'
 ## Known constraints
 - Android Auto integration is not included in this phase; this release is optimized for foreground phone use while driving.
 
-## ?? Local-First Repo Policy
-This repository treats the local machine as the single source of truth. All changes are made and validated locally, then synced to GitHub using the provided sync script. GitHub is used only as a mirror/backup   never as the authoritative source.
-
-## Test edit
-test edit
+## Local-First Repo Policy
+This repository treats the local machine as the single source of truth. All changes are made and validated locally, then synced to GitHub using the provided sync script. GitHub is used only as a mirror/backup, never as the authoritative source.
