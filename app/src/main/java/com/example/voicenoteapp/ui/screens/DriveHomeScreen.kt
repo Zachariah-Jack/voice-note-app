@@ -20,6 +20,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -36,7 +37,8 @@ import androidx.core.content.ContextCompat
 @Composable
 fun DriveHomeScreen(
     viewModel: DriveHomeViewModel,
-    onLeaveVoiceNote: () -> Unit,
+    onStartJobTreadAssistant: () -> Unit,
+    onOpenLegacyVoiceNotes: () -> Unit,
     onOpenUnsavedDrafts: () -> Unit,
     onOpenJobs: () -> Unit
 ) {
@@ -57,7 +59,7 @@ fun DriveHomeScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Drive Capture") },
+                title = { Text("JobTread Assistant") },
                 actions = {
                     Button(onClick = onOpenJobs) {
                         Icon(Icons.Default.List, contentDescription = "Jobs")
@@ -94,18 +96,22 @@ fun DriveHomeScreen(
             }
 
             Button(
-                onClick = onLeaveVoiceNote,
+                onClick = onStartJobTreadAssistant,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(88.dp)
             ) {
-                Text("Leave a Note", style = MaterialTheme.typography.headlineSmall)
+                Text("Talk to JobTread", style = MaterialTheme.typography.headlineSmall)
             }
 
             Text(
-                text = "Tap once, speak each prompt, and the app files your note automatically.",
+                text = "Tap once, say what JobTread should turn into a To-Do, then review the parsed command before sending.",
                 style = MaterialTheme.typography.bodyLarge
             )
+
+            TextButton(onClick = onOpenLegacyVoiceNotes, modifier = Modifier.fillMaxWidth()) {
+                Text("Use Legacy Note Wizard")
+            }
 
             if (!notificationsGranted && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 Card(modifier = Modifier.fillMaxWidth()) {

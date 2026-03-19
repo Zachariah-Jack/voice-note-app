@@ -2,6 +2,7 @@ package com.example.voicenoteapp.ui.navigation
 
 sealed class Route(val route: String) {
     data object DriveHome : Route("drive_home")
+    data object JobTreadAssistant : Route("jobtread_assistant")
     data object UnsavedDrafts : Route("unsaved_drafts")
     data object JobList : Route("job_list")
     data object Settings : Route("settings")

@@ -14,6 +14,8 @@ import androidx.navigation.navArgument
 import com.example.voicenoteapp.data.repo.VoiceNotesRepository
 import com.example.voicenoteapp.ui.screens.DriveHomeScreen
 import com.example.voicenoteapp.ui.screens.DriveHomeViewModel
+import com.example.voicenoteapp.ui.screens.JobTreadAssistantScreen
+import com.example.voicenoteapp.ui.screens.JobTreadAssistantViewModel
 import com.example.voicenoteapp.ui.screens.JobDetailScreen
 import com.example.voicenoteapp.ui.screens.JobDetailViewModel
 import com.example.voicenoteapp.ui.screens.JobListScreen
@@ -51,9 +53,19 @@ fun AppNavHost(
             })
             DriveHomeScreen(
                 viewModel = vm,
-                onLeaveVoiceNote = { navController.navigate(Route.VoiceWizard.create(null, null)) },
+                onStartJobTreadAssistant = { navController.navigate(Route.JobTreadAssistant.route) },
+                onOpenLegacyVoiceNotes = { navController.navigate(Route.VoiceWizard.create(null, null)) },
                 onOpenUnsavedDrafts = { navController.navigate(Route.UnsavedDrafts.route) },
                 onOpenJobs = { navController.navigate(Route.JobList.route) }
+            )
+        }
+        composable(Route.JobTreadAssistant.route) {
+            val vm = viewModel<JobTreadAssistantViewModel>(factory = simpleFactory {
+                JobTreadAssistantViewModel()
+            })
+            JobTreadAssistantScreen(
+                viewModel = vm,
+                onBack = { navController.popBackStack() }
             )
         }
         composable(Route.UnsavedDrafts.route) {
