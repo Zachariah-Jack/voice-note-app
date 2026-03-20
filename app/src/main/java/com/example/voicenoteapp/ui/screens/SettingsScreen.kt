@@ -73,7 +73,7 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodyLarge
             )
             Text(
-                text = "OpenAI and JobTread entries are placeholders for the next integration stage.",
+                text = "OpenAI settings power real voice parsing when configured. JobTread settings are still placeholders for the upcoming create action.",
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(top = 12.dp)
             )
@@ -100,7 +100,7 @@ fun SettingsScreen(
                     .fillMaxWidth()
                     .padding(top = 12.dp),
                 label = { Text("Model Name") },
-                placeholder = { Text("gpt-4.1-mini") },
+                placeholder = { Text("gpt-5-mini") },
                 singleLine = true
             )
 

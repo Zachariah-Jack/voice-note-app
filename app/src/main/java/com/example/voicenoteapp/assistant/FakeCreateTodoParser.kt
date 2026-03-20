@@ -5,7 +5,12 @@ import com.example.voicenoteapp.voice.SpeechParsing
 import java.time.LocalDate
 
 class FakeCreateTodoParser : CreateTodoParser {
-    override val parserLabel: String = "Local deterministic fake parser"
+    private val descriptor = CreateTodoParserDescriptor(
+        mode = CreateTodoParserMode.FALLBACK,
+        parserLabel = "Local deterministic fallback parser"
+    )
+
+    override fun describe(settings: AssistantSettings): CreateTodoParserDescriptor = descriptor
 
     override suspend fun parse(
         transcript: String,
@@ -13,7 +18,7 @@ class FakeCreateTodoParser : CreateTodoParser {
     ): CreateTodoParseResult {
         return CreateTodoParseResult.Success(
             intent = parseLocally(transcript),
-            parserLabel = parserLabel
+            descriptor = descriptor
         )
     }
 

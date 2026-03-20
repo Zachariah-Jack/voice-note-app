@@ -45,7 +45,8 @@ import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.example.voicenoteapp.assistant.CreateTodoIntent
-import com.example.voicenoteapp.settings.AssistantConfigField
+import com.example.voicenoteapp.assistant.CreateTodoParserMode
+import com.example.voicenoteapp.settings.AssistantSettings
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -211,13 +212,14 @@ fun JobTreadAssistantScreen(
         ) {
             Text("How can I help?", style = MaterialTheme.typography.headlineSmall)
             Text(
-                text = "Speak one request and I will run it through the parser seam, then show the strict create_todo result.",
+                text = "Speak one request and I will parse it into a strict create_todo result. OpenAI is used when configured, otherwise the local fallback parser stays available.",
                 style = MaterialTheme.typography.bodyLarge
             )
 
             ConfigurationStatusCard(
+                parserMode = state.parserMode,
                 parserLabel = state.parserLabel,
-                missingConfiguration = state.missingConfiguration,
+                settings = state.settings,
                 onOpenSettings = onOpenSettings
             )
 
@@ -249,7 +251,10 @@ fun JobTreadAssistantScreen(
             state.errorMessage?.let { message ->
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Try again", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            text = if (state.transcript.isBlank()) "Voice capture issue" else "Parser issue",
+                            style = MaterialTheme.typography.titleMedium
+                        )
                         Text(message, color = MaterialTheme.colorScheme.error)
                         Button(onClick = viewModel::startCapture, modifier = Modifier.fillMaxWidth()) {
                             Text("Retry")
@@ -268,7 +273,11 @@ fun JobTreadAssistantScreen(
             }
 
             state.parsedIntent?.let { parsedIntent ->
-                ParsedCreateTodoCard(parsedIntent)
+                ParsedCreateTodoCard(
+                    parsedIntent = parsedIntent,
+                    parserMode = state.parserMode,
+                    parserLabel = state.parserLabel
+                )
                 Button(
                     onClick = viewModel::onConfirmPlaceholder,
                     enabled = state.canConfirmPlaceholder,
@@ -280,6 +289,13 @@ fun JobTreadAssistantScreen(
                     Text(
                         text = "Add the JobTread base URL and API key in Settings to enable the future create action.",
                         style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+                if (parsedIntent.missingFields.isNotEmpty()) {
+                    Text(
+                        text = "The parsed result is still missing required fields, so confirm stays disabled until the request is clearer.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error
                     )
                 }
                 TextButton(
@@ -313,8 +329,9 @@ fun JobTreadAssistantScreen(
 
 @Composable
 private fun ConfigurationStatusCard(
+    parserMode: CreateTodoParserMode,
     parserLabel: String,
-    missingConfiguration: List<AssistantConfigField>,
+    settings: AssistantSettings,
     onOpenSettings: () -> Unit
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -323,14 +340,29 @@ private fun ConfigurationStatusCard(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text("Parser Seam", style = MaterialTheme.typography.titleMedium)
-            Text("Active parser: $parserLabel", style = MaterialTheme.typography.bodyMedium)
-            if (missingConfiguration.isEmpty()) {
-                Text("All saved placeholders are present for the next integration stage.")
-            } else {
+            Text("Mode: ${parserMode.label}", style = MaterialTheme.typography.bodyMedium)
+            Text("Implementation: $parserLabel", style = MaterialTheme.typography.bodyMedium)
+            Text(
+                text = if (settings.hasOpenAiConfig) {
+                    "OpenAI: Configured"
+                } else {
+                    "OpenAI: Missing ${settings.missingOpenAiFields.joinToString(", ") { it.label }}"
+                }
+            )
+            Text(
+                text = if (settings.hasJobTreadConfig) {
+                    "JobTread: Configured"
+                } else {
+                    "JobTread: Missing ${settings.missingJobTreadFields.joinToString(", ") { it.label }}"
+                }
+            )
+            if (parserMode == CreateTodoParserMode.FALLBACK && !settings.hasOpenAiConfig) {
                 Text(
-                    text = "Missing configuration: ${missingConfiguration.joinToString(", ") { it.label }}",
+                    text = "OpenAI is not fully configured, so this screen will use the local fallback parser.",
                     color = MaterialTheme.colorScheme.error
                 )
+            } else {
+                Text("OpenAI parsing is ready when a transcript is captured.")
             }
             TextButton(onClick = onOpenSettings, modifier = Modifier.fillMaxWidth()) {
                 Text("Open Settings")
@@ -357,13 +389,19 @@ private fun ListeningStatusCard(
 }
 
 @Composable
-private fun ParsedCreateTodoCard(parsedIntent: CreateTodoIntent) {
+private fun ParsedCreateTodoCard(
+    parsedIntent: CreateTodoIntent,
+    parserMode: CreateTodoParserMode,
+    parserLabel: String
+) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Text("Parsed create_todo", style = MaterialTheme.typography.titleMedium)
+            ParsedField("Parser Mode", parserMode.label)
+            ParsedField("Parser", parserLabel)
             ParsedField("Intent", parsedIntent.intent.name.lowercase())
             ParsedField("Schema", parsedIntent.schemaVersion)
             ParsedField("Title", parsedIntent.todo.title ?: "Missing")

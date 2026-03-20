@@ -3,9 +3,10 @@ package com.example.voicenoteapp.ui.screens
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.voicenoteapp.assistant.CreateTodoIntent
+import com.example.voicenoteapp.assistant.CreateTodoParserDescriptor
+import com.example.voicenoteapp.assistant.CreateTodoParserMode
 import com.example.voicenoteapp.assistant.CreateTodoParseResult
 import com.example.voicenoteapp.assistant.CreateTodoParser
-import com.example.voicenoteapp.settings.AssistantConfigField
 import com.example.voicenoteapp.settings.AssistantSettings
 import com.example.voicenoteapp.settings.CredentialStore
 import com.example.voicenoteapp.voice.SpeechParsing
@@ -27,23 +28,27 @@ data class JobTreadAssistantUiState(
     val prompt: String = "How can I help?",
     val transcript: String = "",
     val parsedIntent: CreateTodoIntent? = null,
+    val parserMode: CreateTodoParserMode = CreateTodoParserMode.FALLBACK,
     val parserLabel: String = "",
     val settings: AssistantSettings = AssistantSettings(),
-    val missingConfiguration: List<AssistantConfigField> = emptyList(),
     val errorMessage: String? = null,
     val placeholderMessage: String? = null,
     val captureNonce: Int = 0
 ) {
     val canConfirmPlaceholder: Boolean
-        get() = parsedIntent != null && settings.hasJobTreadConfig
+        get() = parsedIntent != null && parsedIntent.missingFields.isEmpty() && settings.hasJobTreadConfig
 }
 
 class JobTreadAssistantViewModel(
     credentialStore: CredentialStore,
     private val createTodoParser: CreateTodoParser
 ) : ViewModel() {
+    private val initialDescriptor = createTodoParser.describe(AssistantSettings())
     private val _uiState = MutableStateFlow(
-        JobTreadAssistantUiState(parserLabel = createTodoParser.parserLabel)
+        JobTreadAssistantUiState(
+            parserMode = initialDescriptor.mode,
+            parserLabel = initialDescriptor.parserLabel
+        )
     )
     val uiState = _uiState.asStateFlow()
     private var currentSettings = AssistantSettings()
@@ -52,10 +57,12 @@ class JobTreadAssistantViewModel(
         viewModelScope.launch {
             credentialStore.settings.collect { settings ->
                 currentSettings = settings
+                val descriptor = createTodoParser.describe(settings)
                 _uiState.update {
                     it.copy(
                         settings = settings,
-                        missingConfiguration = settings.missingFields
+                        parserMode = descriptor.mode,
+                        parserLabel = descriptor.parserLabel
                     )
                 }
             }
@@ -98,34 +105,31 @@ class JobTreadAssistantViewModel(
         viewModelScope.launch {
             when (val result = createTodoParser.parse(cleaned, currentSettings)) {
                 is CreateTodoParseResult.Success -> {
-                    _uiState.update {
-                        it.copy(
+                    applyParserResult(result.descriptor) {
+                        copy(
                             stage = JobTreadAssistantStage.RESULT,
                             parsedIntent = result.intent,
-                            errorMessage = null,
-                            parserLabel = result.parserLabel
+                            errorMessage = null
                         )
                     }
                 }
 
                 is CreateTodoParseResult.MissingConfiguration -> {
-                    _uiState.update {
-                        it.copy(
+                    applyParserResult(result.descriptor) {
+                        copy(
                             stage = JobTreadAssistantStage.ERROR,
                             parsedIntent = null,
-                            errorMessage = result.message,
-                            parserLabel = result.parserLabel
+                            errorMessage = result.message
                         )
                     }
                 }
 
                 is CreateTodoParseResult.Failure -> {
-                    _uiState.update {
-                        it.copy(
+                    applyParserResult(result.descriptor) {
+                        copy(
                             stage = JobTreadAssistantStage.ERROR,
                             parsedIntent = null,
-                            errorMessage = result.message,
-                            parserLabel = result.parserLabel
+                            errorMessage = result.message
                         )
                     }
                 }
@@ -138,7 +142,8 @@ class JobTreadAssistantViewModel(
             stage = JobTreadAssistantStage.ERROR,
             errorMessage = message,
             transcript = "",
-            parsedIntent = null
+            parsedIntent = null,
+            placeholderMessage = null
         )
     }
 
@@ -147,7 +152,8 @@ class JobTreadAssistantViewModel(
             stage = JobTreadAssistantStage.ERROR,
             errorMessage = "No transcript was captured. Try again.",
             transcript = "",
-            parsedIntent = null
+            parsedIntent = null,
+            placeholderMessage = null
         )
     }
 
@@ -159,5 +165,20 @@ class JobTreadAssistantViewModel(
                 "JobTread API settings are still missing. Save the base URL and API key in Settings before the next stage."
             }
         )
+    }
+
+    private fun applyParserResult(
+        descriptor: CreateTodoParserDescriptor,
+        update: JobTreadAssistantUiState.() -> JobTreadAssistantUiState
+    ) {
+        _uiState.update {
+            with(
+                it.copy(
+                parserMode = descriptor.mode,
+                parserLabel = descriptor.parserLabel
+                ),
+                update
+            )
+        }
     }
 }
