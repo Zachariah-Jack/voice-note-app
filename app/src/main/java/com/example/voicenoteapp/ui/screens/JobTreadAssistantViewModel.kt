@@ -8,10 +8,14 @@ import com.example.voicenoteapp.assistant.CreateTodoParser
 import com.example.voicenoteapp.assistant.CreateTodoParserDescriptor
 import com.example.voicenoteapp.assistant.CreateTodoParserMode
 import com.example.voicenoteapp.jobtread.JobTreadCreateReadiness
+import com.example.voicenoteapp.jobtread.JobTreadCreatedTodo
 import com.example.voicenoteapp.jobtread.JobTreadLookupLoadResult
 import com.example.voicenoteapp.jobtread.JobTreadLookupRepository
 import com.example.voicenoteapp.jobtread.JobTreadResolutionSummary
 import com.example.voicenoteapp.jobtread.JobTreadResolvers
+import com.example.voicenoteapp.jobtread.JobTreadTodoCreateResult
+import com.example.voicenoteapp.jobtread.JobTreadTodoRepository
+import com.example.voicenoteapp.jobtread.toJobTreadTodoCreateInput
 import com.example.voicenoteapp.settings.AssistantSettings
 import com.example.voicenoteapp.settings.CredentialStore
 import com.example.voicenoteapp.voice.SpeechParsing
@@ -35,6 +39,13 @@ enum class JobTreadLookupStage {
     ERROR
 }
 
+enum class JobTreadCreateStage {
+    IDLE,
+    SENDING,
+    SUCCESS,
+    ERROR
+}
+
 data class JobTreadAssistantUiState(
     val stage: JobTreadAssistantStage = JobTreadAssistantStage.IDLE,
     val prompt: String = "How can I help?",
@@ -44,10 +55,12 @@ data class JobTreadAssistantUiState(
     val parserLabel: String = "",
     val settings: AssistantSettings = AssistantSettings(),
     val errorMessage: String? = null,
-    val placeholderMessage: String? = null,
     val lookupStage: JobTreadLookupStage = JobTreadLookupStage.IDLE,
     val lookupSummary: JobTreadResolutionSummary? = null,
     val lookupErrorMessage: String? = null,
+    val createStage: JobTreadCreateStage = JobTreadCreateStage.IDLE,
+    val createErrorMessage: String? = null,
+    val createdTodo: JobTreadCreatedTodo? = null,
     val captureNonce: Int = 0
 ) {
     val createReadiness: JobTreadCreateReadiness
@@ -59,14 +72,18 @@ data class JobTreadAssistantUiState(
             summary = lookupSummary
         )
 
-    val canConfirmPlaceholder: Boolean
-        get() = parsedIntent != null && createReadiness == JobTreadCreateReadiness.READY
+    val canSubmitCreate: Boolean
+        get() = parsedIntent != null &&
+            createReadiness == JobTreadCreateReadiness.READY &&
+            createStage != JobTreadCreateStage.SENDING &&
+            createStage != JobTreadCreateStage.SUCCESS
 }
 
 class JobTreadAssistantViewModel(
     credentialStore: CredentialStore,
     private val createTodoParser: CreateTodoParser,
-    private val jobTreadLookupRepository: JobTreadLookupRepository
+    private val jobTreadLookupRepository: JobTreadLookupRepository,
+    private val jobTreadTodoRepository: JobTreadTodoRepository
 ) : ViewModel() {
     private val initialDescriptor = createTodoParser.describe(AssistantSettings())
     private val _uiState = MutableStateFlow(
@@ -100,10 +117,12 @@ class JobTreadAssistantViewModel(
             transcript = "",
             parsedIntent = null,
             errorMessage = null,
-            placeholderMessage = null,
             lookupStage = JobTreadLookupStage.IDLE,
             lookupSummary = null,
             lookupErrorMessage = null,
+            createStage = JobTreadCreateStage.IDLE,
+            createErrorMessage = null,
+            createdTodo = null,
             captureNonce = _uiState.value.captureNonce + 1
         )
     }
@@ -112,7 +131,7 @@ class JobTreadAssistantViewModel(
         _uiState.value = _uiState.value.copy(
             stage = JobTreadAssistantStage.LISTENING,
             errorMessage = null,
-            placeholderMessage = null
+            createErrorMessage = null
         )
     }
 
@@ -127,10 +146,12 @@ class JobTreadAssistantViewModel(
             transcript = cleaned,
             parsedIntent = null,
             errorMessage = null,
-            placeholderMessage = null,
             lookupStage = JobTreadLookupStage.IDLE,
             lookupSummary = null,
-            lookupErrorMessage = null
+            lookupErrorMessage = null,
+            createStage = JobTreadCreateStage.IDLE,
+            createErrorMessage = null,
+            createdTodo = null
         )
 
         viewModelScope.launch {
@@ -176,10 +197,12 @@ class JobTreadAssistantViewModel(
             errorMessage = message,
             transcript = "",
             parsedIntent = null,
-            placeholderMessage = null,
             lookupStage = JobTreadLookupStage.IDLE,
             lookupSummary = null,
-            lookupErrorMessage = null
+            lookupErrorMessage = null,
+            createStage = JobTreadCreateStage.IDLE,
+            createErrorMessage = null,
+            createdTodo = null
         )
     }
 
@@ -189,22 +212,89 @@ class JobTreadAssistantViewModel(
             errorMessage = "No transcript was captured. Try again.",
             transcript = "",
             parsedIntent = null,
-            placeholderMessage = null,
             lookupStage = JobTreadLookupStage.IDLE,
             lookupSummary = null,
-            lookupErrorMessage = null
+            lookupErrorMessage = null,
+            createStage = JobTreadCreateStage.IDLE,
+            createErrorMessage = null,
+            createdTodo = null
         )
     }
 
-    fun onConfirmPlaceholder() {
-        val readiness = _uiState.value.createReadiness
-        _uiState.value = _uiState.value.copy(
-            placeholderMessage = if (readiness == JobTreadCreateReadiness.READY) {
-                "Lookup resolution is complete. The final JobTread create To-Do call comes next."
-            } else {
-                readiness.label
+    fun onConfirmCreate() {
+        val state = _uiState.value
+        val parsedIntent = state.parsedIntent ?: run {
+            _uiState.update {
+                it.copy(
+                    createStage = JobTreadCreateStage.ERROR,
+                    createErrorMessage = "Nothing is ready to send yet."
+                )
             }
-        )
+            return
+        }
+
+        if (state.createReadiness != JobTreadCreateReadiness.READY) {
+            _uiState.update {
+                it.copy(
+                    createStage = JobTreadCreateStage.ERROR,
+                    createErrorMessage = state.createReadiness.label
+                )
+            }
+            return
+        }
+
+        val createInput = parsedIntent.toJobTreadTodoCreateInput(state.lookupSummary)
+        if (createInput == null) {
+            _uiState.update {
+                it.copy(
+                    createStage = JobTreadCreateStage.ERROR,
+                    createErrorMessage = "The parsed request is still missing a title, so it cannot be sent."
+                )
+            }
+            return
+        }
+
+        _uiState.update {
+            it.copy(
+                createStage = JobTreadCreateStage.SENDING,
+                createErrorMessage = null,
+                createdTodo = null
+            )
+        }
+
+        viewModelScope.launch {
+            when (val result = jobTreadTodoRepository.createTodo(createInput, currentSettings)) {
+                is JobTreadTodoCreateResult.Success -> {
+                    _uiState.update {
+                        it.copy(
+                            createStage = JobTreadCreateStage.SUCCESS,
+                            createErrorMessage = null,
+                            createdTodo = result.todo
+                        )
+                    }
+                }
+
+                is JobTreadTodoCreateResult.MissingConfiguration -> {
+                    _uiState.update {
+                        it.copy(
+                            createStage = JobTreadCreateStage.ERROR,
+                            createErrorMessage = result.message,
+                            createdTodo = null
+                        )
+                    }
+                }
+
+                is JobTreadTodoCreateResult.Failure -> {
+                    _uiState.update {
+                        it.copy(
+                            createStage = JobTreadCreateStage.ERROR,
+                            createErrorMessage = result.message,
+                            createdTodo = null
+                        )
+                    }
+                }
+            }
+        }
     }
 
     private suspend fun resolveLookups(intent: CreateTodoIntent) {

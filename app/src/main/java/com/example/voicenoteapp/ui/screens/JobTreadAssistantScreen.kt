@@ -48,9 +48,9 @@ import com.example.voicenoteapp.assistant.CreateTodoIntent
 import com.example.voicenoteapp.assistant.CreateTodoParserMode
 import com.example.voicenoteapp.jobtread.JobTreadAssignee
 import com.example.voicenoteapp.jobtread.JobTreadCreateReadiness
+import com.example.voicenoteapp.jobtread.JobTreadCreatedTodo
 import com.example.voicenoteapp.jobtread.JobTreadJob
 import com.example.voicenoteapp.jobtread.JobTreadLookupResolution
-import com.example.voicenoteapp.jobtread.JobTreadResolutionSummary
 import com.example.voicenoteapp.settings.AssistantSettings
 import java.util.Locale
 
@@ -217,7 +217,7 @@ fun JobTreadAssistantScreen(
         ) {
             Text("How can I help?", style = MaterialTheme.typography.headlineSmall)
             Text(
-                text = "Speak one request and I will parse it into a strict create_todo result, then run deterministic JobTread lookup for the assignee and job when those references are present.",
+                text = "Speak one request and I will parse it into a strict create_todo result, resolve any JobTread assignee or job references, and only send the create call when the request is fully safe.",
                 style = MaterialTheme.typography.bodyLarge
             )
 
@@ -284,6 +284,7 @@ fun JobTreadAssistantScreen(
                     parserLabel = state.parserLabel
                 )
                 JobTreadLookupCard(state)
+                CreateStatusCard(state)
                 Text(
                     text = state.createReadiness.label,
                     style = MaterialTheme.typography.bodyMedium,
@@ -293,39 +294,43 @@ fun JobTreadAssistantScreen(
                         MaterialTheme.colorScheme.error
                     }
                 )
-                Button(
-                    onClick = viewModel::onConfirmPlaceholder,
-                    enabled = state.canConfirmPlaceholder,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Confirm Create To-Do")
+
+                if (state.createStage != JobTreadCreateStage.SUCCESS) {
+                    Button(
+                        onClick = viewModel::onConfirmCreate,
+                        enabled = state.canSubmitCreate,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(confirmButtonLabel(state))
+                    }
                 }
+
                 if (!state.settings.hasJobTreadConfig) {
                     Text(
-                        text = "Add the JobTread Pave URL and grant key in Settings to enable lookup and the future create action.",
+                        text = "Add the JobTread Pave URL and grant key in Settings to enable lookup and the live create action.",
                         style = MaterialTheme.typography.bodyMedium
                     )
                 }
                 if (parsedIntent.missingFields.isNotEmpty()) {
                     Text(
-                        text = "The parsed result is still missing required fields, so confirm stays disabled until the request is clearer.",
+                        text = "The parsed result is still missing required fields, so create stays disabled until the request is clearer.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.error
                     )
                 }
-                TextButton(
-                    onClick = viewModel::startCapture,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Retry Voice Capture")
-                }
-            }
-
-            state.placeholderMessage?.let { message ->
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text("Next Step Placeholder", style = MaterialTheme.typography.titleMedium)
-                        Text(message, modifier = Modifier.padding(top = 4.dp))
+                if (state.createStage == JobTreadCreateStage.SUCCESS) {
+                    Button(
+                        onClick = viewModel::startCapture,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Start New Request")
+                    }
+                } else {
+                    TextButton(
+                        onClick = viewModel::startCapture,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Retry Voice Capture")
                     }
                 }
             }
@@ -443,6 +448,47 @@ private fun JobTreadLookupCard(state: JobTreadAssistantUiState) {
 }
 
 @Composable
+private fun CreateStatusCard(state: JobTreadAssistantUiState) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            when (state.createStage) {
+                JobTreadCreateStage.IDLE -> {
+                    Text("Prepared for create", style = MaterialTheme.typography.titleMedium)
+                    Text("Nothing has been sent to JobTread yet. Confirm only after the parsed fields and lookup matches look correct.")
+                }
+
+                JobTreadCreateStage.SENDING -> {
+                    CircularProgressIndicator()
+                    Text("Creating in JobTread", style = MaterialTheme.typography.titleMedium)
+                    Text("Sending the resolved To-Do request to JobTread now.")
+                }
+
+                JobTreadCreateStage.SUCCESS -> {
+                    val createdTodo = state.createdTodo
+                    Text("Created in JobTread", style = MaterialTheme.typography.titleMedium)
+                    Text("This request was sent successfully.")
+                    if (createdTodo != null) {
+                        CreatedTodoDetails(createdTodo)
+                    }
+                }
+
+                JobTreadCreateStage.ERROR -> {
+                    Text("Create failed", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        text = state.createErrorMessage ?: "JobTread did not accept the create request.",
+                        color = MaterialTheme.colorScheme.error
+                    )
+                    Text("The transcript, parsed fields, and lookup results were kept so you can retry safely.")
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun ListeningStatusCard(
     title: String,
     body: String
@@ -493,6 +539,16 @@ private fun ParsedCreateTodoCard(
 }
 
 @Composable
+private fun CreatedTodoDetails(createdTodo: JobTreadCreatedTodo) {
+    ParsedField("JobTread ID", createdTodo.id)
+    ParsedField("Name", createdTodo.name)
+    ParsedField("Description", createdTodo.description ?: "Not returned")
+    ParsedField("Target Type", createdTodo.targetType ?: "Not returned")
+    ParsedField("Due Date", createdTodo.dueDateIso ?: "Not returned")
+    ParsedField("Due Time", createdTodo.dueTimeLocal ?: "Not returned")
+}
+
+@Composable
 private fun ParsedField(
     label: String,
     value: String
@@ -511,6 +567,15 @@ private fun idleLookupMessage(state: JobTreadAssistantUiState): String {
         state.parsedIntent.todo.assigneeReferenceText.isNullOrBlank() &&
             state.parsedIntent.todo.jobReferenceText.isNullOrBlank() -> "No assignee or job reference was parsed, so no lookup was required."
         else -> "Lookup details will appear here."
+    }
+}
+
+private fun confirmButtonLabel(state: JobTreadAssistantUiState): String {
+    return when (state.createStage) {
+        JobTreadCreateStage.ERROR -> "Retry Create To-Do"
+        JobTreadCreateStage.SENDING -> "Creating To-Do..."
+        JobTreadCreateStage.SUCCESS -> "Created"
+        JobTreadCreateStage.IDLE -> "Create JobTread To-Do"
     }
 }
 

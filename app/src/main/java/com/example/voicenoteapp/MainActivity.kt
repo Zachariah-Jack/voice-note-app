@@ -15,6 +15,7 @@ import com.example.voicenoteapp.data.db.AppDatabase
 import com.example.voicenoteapp.data.repo.VoiceNotesRepository
 import com.example.voicenoteapp.jobtread.JobTreadApiClient
 import com.example.voicenoteapp.jobtread.JobTreadLookupRepository
+import com.example.voicenoteapp.jobtread.JobTreadTodoRepository
 import com.example.voicenoteapp.notifications.DraftReminderScheduler
 import com.example.voicenoteapp.settings.CredentialStore
 import com.example.voicenoteapp.ui.navigation.AppNavHost
@@ -46,9 +47,15 @@ class MainActivity : ComponentActivity() {
             }
             val repository = remember { VoiceNotesRepository(db) }
             val credentialStore = remember { CredentialStore(applicationContext) }
+            val jobTreadApiClient = remember { JobTreadApiClient() }
             val jobTreadLookupRepository = remember {
                 JobTreadLookupRepository(
-                    apiClient = JobTreadApiClient()
+                    apiClient = jobTreadApiClient
+                )
+            }
+            val jobTreadTodoRepository = remember {
+                JobTreadTodoRepository(
+                    apiClient = jobTreadApiClient
                 )
             }
             val createTodoParser = remember {
@@ -64,6 +71,7 @@ class MainActivity : ComponentActivity() {
                     credentialStore = credentialStore,
                     createTodoParser = createTodoParser,
                     jobTreadLookupRepository = jobTreadLookupRepository,
+                    jobTreadTodoRepository = jobTreadTodoRepository,
                     startDestination = startRoute,
                     externalRoute = externalRoute,
                     onExternalRouteHandled = { externalRoute = null }

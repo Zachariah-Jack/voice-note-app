@@ -25,10 +25,33 @@ class JobTreadApiClient(
         queryRoot: JsonObject,
         settings: AssistantSettings
     ): JobTreadApiResult<JsonObject> {
+        return executePaveQuery(
+            queryRoot = queryRoot,
+            settings = settings,
+            missingConfigMessage = "JobTread lookup needs a Pave URL and grant key in Settings."
+        )
+    }
+
+    suspend fun executeMutation(
+        queryRoot: JsonObject,
+        settings: AssistantSettings
+    ): JobTreadApiResult<JsonObject> {
+        return executePaveQuery(
+            queryRoot = queryRoot,
+            settings = settings,
+            missingConfigMessage = "JobTread create needs a Pave URL and grant key in Settings."
+        )
+    }
+
+    private suspend fun executePaveQuery(
+        queryRoot: JsonObject,
+        settings: AssistantSettings,
+        missingConfigMessage: String
+    ): JobTreadApiResult<JsonObject> {
         if (!settings.hasJobTreadConfig) {
             return JobTreadApiResult.MissingConfiguration(
                 fields = settings.missingJobTreadFields,
-                message = "JobTread lookup needs a Pave URL and grant key in Settings."
+                message = missingConfigMessage
             )
         }
 
@@ -43,12 +66,17 @@ class JobTreadApiClient(
                     payload = payload
                 )
                 val root = json.parseToJsonElement(responseBody).jsonObject
-                JobTreadApiResult.Success(root)
+                val apiError = extractApiError(root)
+                if (apiError != null) {
+                    JobTreadApiResult.Failure(apiError)
+                } else {
+                    JobTreadApiResult.Success(root)
+                }
             } catch (error: JobTreadApiException) {
-                JobTreadApiResult.Failure(error.message ?: "JobTread lookup failed.")
+                JobTreadApiResult.Failure(error.message ?: "JobTread request failed.")
             } catch (error: Exception) {
                 JobTreadApiResult.Failure(
-                    "JobTread lookup failed: ${error.message ?: "unknown error"}."
+                    "JobTread request failed: ${error.message ?: "unknown error"}."
                 )
             }
         }
@@ -114,7 +142,7 @@ class JobTreadApiClient(
     private fun normalizePaveUrl(baseUrl: String): String {
         val trimmed = baseUrl.trim().trimEnd('/')
         if (trimmed.isBlank()) {
-            throw JobTreadApiException("JobTread lookup needs a Pave URL in Settings.")
+            throw JobTreadApiException("JobTread request needs a Pave URL in Settings.")
         }
         return if (trimmed.endsWith("/pave", ignoreCase = true)) {
             trimmed
@@ -123,30 +151,34 @@ class JobTreadApiClient(
         }
     }
 
+    private fun extractApiError(root: JsonObject): String? {
+        val errorMessage = root["error"]
+            ?.jsonObject
+            ?.get("message")
+            ?.jsonPrimitive
+            ?.contentOrNull
+            ?: root["errors"]
+                ?.jsonArray
+                ?.firstOrNull()
+                ?.jsonObject
+                ?.get("message")
+                ?.jsonPrimitive
+                ?.contentOrNull
+
+        return errorMessage
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?.let { "JobTread request failed: $it" }
+    }
+
     private fun parseApiError(
         responseBody: String,
         responseMessage: String?
     ): String {
         return try {
             val root = json.parseToJsonElement(responseBody).jsonObject
-            val errorMessage = root["error"]
-                ?.jsonObject
-                ?.get("message")
-                ?.jsonPrimitive
-                ?.contentOrNull
-                ?: root["errors"]
-                    ?.jsonArray
-                    ?.firstOrNull()
-                    ?.jsonObject
-                    ?.get("message")
-                    ?.jsonPrimitive
-                    ?.contentOrNull
-
-            if (errorMessage.isNullOrBlank()) {
-                "JobTread request failed: ${responseMessage ?: "unknown error"}."
-            } else {
-                "JobTread request failed: $errorMessage"
-            }
+            extractApiError(root)
+                ?: "JobTread request failed: ${responseMessage ?: "unknown error"}."
         } catch (_: Exception) {
             "JobTread request failed: ${responseMessage ?: "unknown error"}."
         }

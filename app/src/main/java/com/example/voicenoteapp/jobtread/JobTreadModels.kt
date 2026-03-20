@@ -29,7 +29,7 @@ data class JobTreadAssignee(
         get() = buildList {
             add(displayName)
             emailAddress?.takeIf { it.isNotBlank() }?.let(::add)
-        }.joinToString(" • ")
+        }.joinToString(" | ")
 }
 
 data class JobTreadJob(
@@ -47,8 +47,27 @@ data class JobTreadJob(
             add(name)
             locationName?.takeIf { it.isNotBlank() }?.let(::add)
             accountName?.takeIf { it.isNotBlank() }?.let(::add)
-        }.joinToString(" • ")
+        }.joinToString(" | ")
 }
+
+data class JobTreadTodoCreateInput(
+    val title: String,
+    val description: String?,
+    val resolvedAssigneeMembershipId: String?,
+    val resolvedJobId: String?,
+    val dueDateIso: String?,
+    val dueTimeLocal: String?
+)
+
+data class JobTreadCreatedTodo(
+    val id: String,
+    val name: String,
+    val description: String?,
+    val isToDo: Boolean,
+    val targetType: String?,
+    val dueDateIso: String?,
+    val dueTimeLocal: String?
+)
 
 data class JobTreadLookupSnapshot(
     val organization: JobTreadOrganization,
@@ -71,4 +90,15 @@ sealed interface JobTreadLookupLoadResult {
     ) : JobTreadLookupLoadResult
 
     data class Failure(val message: String) : JobTreadLookupLoadResult
+}
+
+sealed interface JobTreadTodoCreateResult {
+    data class Success(val todo: JobTreadCreatedTodo) : JobTreadTodoCreateResult
+
+    data class MissingConfiguration(
+        val fields: List<AssistantConfigField>,
+        val message: String
+    ) : JobTreadTodoCreateResult
+
+    data class Failure(val message: String) : JobTreadTodoCreateResult
 }
