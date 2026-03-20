@@ -11,7 +11,9 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.example.voicenoteapp.assistant.CreateTodoParser
 import com.example.voicenoteapp.data.repo.VoiceNotesRepository
+import com.example.voicenoteapp.settings.CredentialStore
 import com.example.voicenoteapp.ui.screens.DriveHomeScreen
 import com.example.voicenoteapp.ui.screens.DriveHomeViewModel
 import com.example.voicenoteapp.ui.screens.JobTreadAssistantScreen
@@ -31,6 +33,8 @@ import com.example.voicenoteapp.ui.screens.VoiceWizardViewModel
 @Composable
 fun AppNavHost(
     repository: VoiceNotesRepository,
+    credentialStore: CredentialStore,
+    createTodoParser: CreateTodoParser,
     startDestination: String = Route.DriveHome.route,
     externalRoute: String? = null,
     onExternalRouteHandled: () -> Unit = {}
@@ -61,11 +65,15 @@ fun AppNavHost(
         }
         composable(Route.JobTreadAssistant.route) {
             val vm = viewModel<JobTreadAssistantViewModel>(factory = simpleFactory {
-                JobTreadAssistantViewModel()
+                JobTreadAssistantViewModel(
+                    credentialStore = credentialStore,
+                    createTodoParser = createTodoParser
+                )
             })
             JobTreadAssistantScreen(
                 viewModel = vm,
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onOpenSettings = { navController.navigate(Route.Settings.route) }
             )
         }
         composable(Route.UnsavedDrafts.route) {
@@ -92,7 +100,10 @@ fun AppNavHost(
             )
         }
         composable(Route.Settings.route) {
-            SettingsScreen(onBack = { navController.popBackStack() })
+            SettingsScreen(
+                credentialStore = credentialStore,
+                onBack = { navController.popBackStack() }
+            )
         }
         composable(
             route = Route.JobDetail.route,

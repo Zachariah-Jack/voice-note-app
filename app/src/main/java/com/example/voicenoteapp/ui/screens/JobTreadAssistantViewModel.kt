@@ -1,11 +1,18 @@
 package com.example.voicenoteapp.ui.screens
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import com.example.voicenoteapp.assistant.CreateTodoIntent
-import com.example.voicenoteapp.assistant.MockCreateTodoIntentParser
+import com.example.voicenoteapp.assistant.CreateTodoParseResult
+import com.example.voicenoteapp.assistant.CreateTodoParser
+import com.example.voicenoteapp.settings.AssistantConfigField
+import com.example.voicenoteapp.settings.AssistantSettings
+import com.example.voicenoteapp.settings.CredentialStore
 import com.example.voicenoteapp.voice.SpeechParsing
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 
 enum class JobTreadAssistantStage {
     IDLE,
@@ -20,14 +27,40 @@ data class JobTreadAssistantUiState(
     val prompt: String = "How can I help?",
     val transcript: String = "",
     val parsedIntent: CreateTodoIntent? = null,
+    val parserLabel: String = "",
+    val settings: AssistantSettings = AssistantSettings(),
+    val missingConfiguration: List<AssistantConfigField> = emptyList(),
     val errorMessage: String? = null,
     val placeholderMessage: String? = null,
     val captureNonce: Int = 0
-)
+) {
+    val canConfirmPlaceholder: Boolean
+        get() = parsedIntent != null && settings.hasJobTreadConfig
+}
 
-class JobTreadAssistantViewModel : ViewModel() {
-    private val _uiState = MutableStateFlow(JobTreadAssistantUiState())
+class JobTreadAssistantViewModel(
+    credentialStore: CredentialStore,
+    private val createTodoParser: CreateTodoParser
+) : ViewModel() {
+    private val _uiState = MutableStateFlow(
+        JobTreadAssistantUiState(parserLabel = createTodoParser.parserLabel)
+    )
     val uiState = _uiState.asStateFlow()
+    private var currentSettings = AssistantSettings()
+
+    init {
+        viewModelScope.launch {
+            credentialStore.settings.collect { settings ->
+                currentSettings = settings
+                _uiState.update {
+                    it.copy(
+                        settings = settings,
+                        missingConfiguration = settings.missingFields
+                    )
+                }
+            }
+        }
+    }
 
     fun startCapture() {
         _uiState.value = _uiState.value.copy(
@@ -56,11 +89,48 @@ class JobTreadAssistantViewModel : ViewModel() {
         }
 
         _uiState.value = _uiState.value.copy(
-            stage = JobTreadAssistantStage.RESULT,
             transcript = cleaned,
-            parsedIntent = MockCreateTodoIntentParser.parse(cleaned),
-            errorMessage = null
+            parsedIntent = null,
+            errorMessage = null,
+            placeholderMessage = null
         )
+
+        viewModelScope.launch {
+            when (val result = createTodoParser.parse(cleaned, currentSettings)) {
+                is CreateTodoParseResult.Success -> {
+                    _uiState.update {
+                        it.copy(
+                            stage = JobTreadAssistantStage.RESULT,
+                            parsedIntent = result.intent,
+                            errorMessage = null,
+                            parserLabel = result.parserLabel
+                        )
+                    }
+                }
+
+                is CreateTodoParseResult.MissingConfiguration -> {
+                    _uiState.update {
+                        it.copy(
+                            stage = JobTreadAssistantStage.ERROR,
+                            parsedIntent = null,
+                            errorMessage = result.message,
+                            parserLabel = result.parserLabel
+                        )
+                    }
+                }
+
+                is CreateTodoParseResult.Failure -> {
+                    _uiState.update {
+                        it.copy(
+                            stage = JobTreadAssistantStage.ERROR,
+                            parsedIntent = null,
+                            errorMessage = result.message,
+                            parserLabel = result.parserLabel
+                        )
+                    }
+                }
+            }
+        }
     }
 
     fun onSpeechError(message: String) {
@@ -83,7 +153,11 @@ class JobTreadAssistantViewModel : ViewModel() {
 
     fun onConfirmPlaceholder() {
         _uiState.value = _uiState.value.copy(
-            placeholderMessage = "JobTread API hookup comes next. This confirmation is local-only for now."
+            placeholderMessage = if (_uiState.value.settings.hasJobTreadConfig) {
+                "JobTread API hookup comes next. This confirmation is local-only for now."
+            } else {
+                "JobTread API settings are still missing. Save the base URL and API key in Settings before the next stage."
+            }
         )
     }
 }

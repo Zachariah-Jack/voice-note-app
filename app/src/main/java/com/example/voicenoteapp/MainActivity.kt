@@ -8,12 +8,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.room.Room
+import com.example.voicenoteapp.assistant.FakeCreateTodoParser
 import com.example.voicenoteapp.data.db.AppDatabase
 import com.example.voicenoteapp.data.repo.VoiceNotesRepository
 import com.example.voicenoteapp.ui.navigation.AppNavHost
 import com.example.voicenoteapp.ui.navigation.Route
 import com.example.voicenoteapp.ui.theme.VoiceNoteAppTheme
 import com.example.voicenoteapp.notifications.DraftReminderScheduler
+import com.example.voicenoteapp.settings.CredentialStore
 
 class MainActivity : ComponentActivity() {
     private var startRoute: String = Route.DriveHome.route
@@ -39,10 +41,14 @@ class MainActivity : ComponentActivity() {
                     .build()
             }
             val repository = remember { VoiceNotesRepository(db) }
+            val credentialStore = remember { CredentialStore(applicationContext) }
+            val createTodoParser = remember { FakeCreateTodoParser() }
 
             VoiceNoteAppTheme {
                 AppNavHost(
                     repository = repository,
+                    credentialStore = credentialStore,
+                    createTodoParser = createTodoParser,
                     startDestination = startRoute,
                     externalRoute = externalRoute,
                     onExternalRouteHandled = { externalRoute = null }

@@ -44,15 +44,16 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import com.example.voicenoteapp.assistant.AssistantIntentType
 import com.example.voicenoteapp.assistant.CreateTodoIntent
+import com.example.voicenoteapp.settings.AssistantConfigField
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun JobTreadAssistantScreen(
     viewModel: JobTreadAssistantViewModel,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onOpenSettings: () -> Unit
 ) {
     val context = LocalContext.current
     val state by viewModel.uiState.collectAsState()
@@ -192,6 +193,11 @@ fun JobTreadAssistantScreen(
                     IconButton(onClick = onBack) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                     }
+                },
+                actions = {
+                    TextButton(onClick = onOpenSettings) {
+                        Text("Settings")
+                    }
                 }
             )
         }
@@ -205,8 +211,14 @@ fun JobTreadAssistantScreen(
         ) {
             Text("How can I help?", style = MaterialTheme.typography.headlineSmall)
             Text(
-                text = "Speak one request and I will turn it into a mocked JobTread create_todo confirmation.",
+                text = "Speak one request and I will run it through the parser seam, then show the strict create_todo result.",
                 style = MaterialTheme.typography.bodyLarge
+            )
+
+            ConfigurationStatusCard(
+                parserLabel = state.parserLabel,
+                missingConfiguration = state.missingConfiguration,
+                onOpenSettings = onOpenSettings
             )
 
             when (state.stage) {
@@ -259,9 +271,16 @@ fun JobTreadAssistantScreen(
                 ParsedCreateTodoCard(parsedIntent)
                 Button(
                     onClick = viewModel::onConfirmPlaceholder,
+                    enabled = state.canConfirmPlaceholder,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text("Confirm Create To-Do")
+                }
+                if (!state.settings.hasJobTreadConfig) {
+                    Text(
+                        text = "Add the JobTread base URL and API key in Settings to enable the future create action.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
                 }
                 TextButton(
                     onClick = viewModel::startCapture,
@@ -293,6 +312,34 @@ fun JobTreadAssistantScreen(
 }
 
 @Composable
+private fun ConfigurationStatusCard(
+    parserLabel: String,
+    missingConfiguration: List<AssistantConfigField>,
+    onOpenSettings: () -> Unit
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text("Parser Seam", style = MaterialTheme.typography.titleMedium)
+            Text("Active parser: $parserLabel", style = MaterialTheme.typography.bodyMedium)
+            if (missingConfiguration.isEmpty()) {
+                Text("All saved placeholders are present for the next integration stage.")
+            } else {
+                Text(
+                    text = "Missing configuration: ${missingConfiguration.joinToString(", ") { it.label }}",
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+            TextButton(onClick = onOpenSettings, modifier = Modifier.fillMaxWidth()) {
+                Text("Open Settings")
+            }
+        }
+    }
+}
+
+@Composable
 private fun ListeningStatusCard(
     title: String,
     body: String
@@ -316,7 +363,7 @@ private fun ParsedCreateTodoCard(parsedIntent: CreateTodoIntent) {
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Text("Mock Parsed create_todo", style = MaterialTheme.typography.titleMedium)
+            Text("Parsed create_todo", style = MaterialTheme.typography.titleMedium)
             ParsedField("Intent", parsedIntent.intent.name.lowercase())
             ParsedField("Schema", parsedIntent.schemaVersion)
             ParsedField("Title", parsedIntent.todo.title ?: "Missing")
