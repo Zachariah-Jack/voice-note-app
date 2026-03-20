@@ -3,8 +3,8 @@ package com.example.voicenoteapp.settings
 enum class AssistantConfigField(val label: String) {
     OPENAI_API_KEY("OpenAI API key"),
     OPENAI_MODEL("OpenAI model"),
-    JOBTREAD_BASE_URL("JobTread base URL"),
-    JOBTREAD_API_KEY("JobTread API key")
+    JOBTREAD_BASE_URL("JobTread Pave URL"),
+    JOBTREAD_API_KEY("JobTread grant key")
 }
 
 data class AssistantSettings(

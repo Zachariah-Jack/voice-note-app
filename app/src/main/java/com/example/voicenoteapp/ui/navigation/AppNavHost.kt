@@ -13,6 +13,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.voicenoteapp.assistant.CreateTodoParser
 import com.example.voicenoteapp.data.repo.VoiceNotesRepository
+import com.example.voicenoteapp.jobtread.JobTreadLookupRepository
 import com.example.voicenoteapp.settings.CredentialStore
 import com.example.voicenoteapp.ui.screens.DriveHomeScreen
 import com.example.voicenoteapp.ui.screens.DriveHomeViewModel
@@ -35,6 +36,7 @@ fun AppNavHost(
     repository: VoiceNotesRepository,
     credentialStore: CredentialStore,
     createTodoParser: CreateTodoParser,
+    jobTreadLookupRepository: JobTreadLookupRepository,
     startDestination: String = Route.DriveHome.route,
     externalRoute: String? = null,
     onExternalRouteHandled: () -> Unit = {}
@@ -67,7 +69,8 @@ fun AppNavHost(
             val vm = viewModel<JobTreadAssistantViewModel>(factory = simpleFactory {
                 JobTreadAssistantViewModel(
                     credentialStore = credentialStore,
-                    createTodoParser = createTodoParser
+                    createTodoParser = createTodoParser,
+                    jobTreadLookupRepository = jobTreadLookupRepository
                 )
             })
             JobTreadAssistantScreen(

@@ -73,7 +73,7 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodyLarge
             )
             Text(
-                text = "OpenAI settings power real voice parsing when configured. JobTread settings are still placeholders for the upcoming create action.",
+                text = "OpenAI settings power real voice parsing when configured. JobTread settings now power read-only lookup and will be reused for the create action next.",
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(top = 12.dp)
             )
@@ -112,8 +112,8 @@ fun SettingsScreen(
                     saveMessage = null
                 },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("API Base URL") },
-                placeholder = { Text("https://api.jobtread.example") },
+                label = { Text("Pave URL") },
+                placeholder = { Text("https://api.jobtread.com/pave") },
                 singleLine = true
             )
             OutlinedTextField(
@@ -125,7 +125,7 @@ fun SettingsScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 12.dp),
-                label = { Text("API Key") },
+                label = { Text("Grant Key") },
                 visualTransformation = PasswordVisualTransformation(),
                 singleLine = true
             )

@@ -13,6 +13,8 @@ import com.example.voicenoteapp.assistant.FakeCreateTodoParser
 import com.example.voicenoteapp.assistant.OpenAiCreateTodoParser
 import com.example.voicenoteapp.data.db.AppDatabase
 import com.example.voicenoteapp.data.repo.VoiceNotesRepository
+import com.example.voicenoteapp.jobtread.JobTreadApiClient
+import com.example.voicenoteapp.jobtread.JobTreadLookupRepository
 import com.example.voicenoteapp.notifications.DraftReminderScheduler
 import com.example.voicenoteapp.settings.CredentialStore
 import com.example.voicenoteapp.ui.navigation.AppNavHost
@@ -44,6 +46,11 @@ class MainActivity : ComponentActivity() {
             }
             val repository = remember { VoiceNotesRepository(db) }
             val credentialStore = remember { CredentialStore(applicationContext) }
+            val jobTreadLookupRepository = remember {
+                JobTreadLookupRepository(
+                    apiClient = JobTreadApiClient()
+                )
+            }
             val createTodoParser = remember {
                 AutomaticCreateTodoParser(
                     openAiParser = OpenAiCreateTodoParser(),
@@ -56,6 +63,7 @@ class MainActivity : ComponentActivity() {
                     repository = repository,
                     credentialStore = credentialStore,
                     createTodoParser = createTodoParser,
+                    jobTreadLookupRepository = jobTreadLookupRepository,
                     startDestination = startRoute,
                     externalRoute = externalRoute,
                     onExternalRouteHandled = { externalRoute = null }

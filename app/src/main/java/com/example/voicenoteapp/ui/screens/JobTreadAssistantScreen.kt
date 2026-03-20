@@ -46,6 +46,11 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.example.voicenoteapp.assistant.CreateTodoIntent
 import com.example.voicenoteapp.assistant.CreateTodoParserMode
+import com.example.voicenoteapp.jobtread.JobTreadAssignee
+import com.example.voicenoteapp.jobtread.JobTreadCreateReadiness
+import com.example.voicenoteapp.jobtread.JobTreadJob
+import com.example.voicenoteapp.jobtread.JobTreadLookupResolution
+import com.example.voicenoteapp.jobtread.JobTreadResolutionSummary
 import com.example.voicenoteapp.settings.AssistantSettings
 import java.util.Locale
 
@@ -212,7 +217,7 @@ fun JobTreadAssistantScreen(
         ) {
             Text("How can I help?", style = MaterialTheme.typography.headlineSmall)
             Text(
-                text = "Speak one request and I will parse it into a strict create_todo result. OpenAI is used when configured, otherwise the local fallback parser stays available.",
+                text = "Speak one request and I will parse it into a strict create_todo result, then run deterministic JobTread lookup for the assignee and job when those references are present.",
                 style = MaterialTheme.typography.bodyLarge
             )
 
@@ -278,6 +283,16 @@ fun JobTreadAssistantScreen(
                     parserMode = state.parserMode,
                     parserLabel = state.parserLabel
                 )
+                JobTreadLookupCard(state)
+                Text(
+                    text = state.createReadiness.label,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (state.createReadiness == JobTreadCreateReadiness.READY) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.error
+                    }
+                )
                 Button(
                     onClick = viewModel::onConfirmPlaceholder,
                     enabled = state.canConfirmPlaceholder,
@@ -287,7 +302,7 @@ fun JobTreadAssistantScreen(
                 }
                 if (!state.settings.hasJobTreadConfig) {
                     Text(
-                        text = "Add the JobTread base URL and API key in Settings to enable the future create action.",
+                        text = "Add the JobTread Pave URL and grant key in Settings to enable lookup and the future create action.",
                         style = MaterialTheme.typography.bodyMedium
                     )
                 }
@@ -372,6 +387,62 @@ private fun ConfigurationStatusCard(
 }
 
 @Composable
+private fun JobTreadLookupCard(state: JobTreadAssistantUiState) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text("JobTread Lookup", style = MaterialTheme.typography.titleMedium)
+            ParsedField("Create Readiness", state.createReadiness.label)
+
+            when (state.lookupStage) {
+                JobTreadLookupStage.LOADING -> {
+                    CircularProgressIndicator()
+                    Text("Resolving JobTread assignee and job references...")
+                }
+
+                JobTreadLookupStage.ERROR -> {
+                    Text(
+                        text = state.lookupErrorMessage ?: "JobTread lookup failed.",
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+
+                JobTreadLookupStage.IDLE,
+                JobTreadLookupStage.READY -> Unit
+            }
+
+            state.lookupSummary?.let { summary ->
+                ParsedField("Organization", summary.organization.name)
+                ParsedField(
+                    "Assignee Match",
+                    resolutionLabel(
+                        resolution = summary.assigneeResolution,
+                        resolvedLabel = JobTreadAssignee::summaryLabel
+                    )
+                )
+                ParsedField(
+                    "Job Match",
+                    resolutionLabel(
+                        resolution = summary.jobResolution,
+                        resolvedLabel = JobTreadJob::summaryLabel
+                    )
+                )
+                if (summary.messages.isNotEmpty()) {
+                    ParsedField("Lookup Messages", summary.messages.joinToString("; "))
+                }
+            } ?: run {
+                Text(
+                    text = idleLookupMessage(state),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun ListeningStatusCard(
     title: String,
     body: String
@@ -429,6 +500,36 @@ private fun ParsedField(
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(label, style = MaterialTheme.typography.labelMedium)
         Text(value, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+private fun idleLookupMessage(state: JobTreadAssistantUiState): String {
+    return when {
+        !state.settings.hasJobTreadConfig -> "JobTread lookup is unavailable until the Pave URL and grant key are saved."
+        state.lookupStage == JobTreadLookupStage.LOADING -> "Resolving JobTread references..."
+        state.parsedIntent == null -> "Lookup will run after parsing."
+        state.parsedIntent.todo.assigneeReferenceText.isNullOrBlank() &&
+            state.parsedIntent.todo.jobReferenceText.isNullOrBlank() -> "No assignee or job reference was parsed, so no lookup was required."
+        else -> "Lookup details will appear here."
+    }
+}
+
+private fun <T> resolutionLabel(
+    resolution: JobTreadLookupResolution<T>,
+    resolvedLabel: (T) -> String
+): String {
+    return when (resolution) {
+        JobTreadLookupResolution.NotRequested -> "Not requested"
+        is JobTreadLookupResolution.Resolved -> resolvedLabel(resolution.match)
+        is JobTreadLookupResolution.Unresolved -> "Unresolved: ${resolution.referenceText}"
+        is JobTreadLookupResolution.Ambiguous -> buildString {
+            append("Ambiguous: ")
+            append(
+                resolution.candidates.joinToString(" | ") { candidate ->
+                    resolvedLabel(candidate)
+                }
+            )
+        }
     }
 }
 
