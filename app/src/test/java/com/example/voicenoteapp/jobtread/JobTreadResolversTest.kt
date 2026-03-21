@@ -137,6 +137,23 @@ class JobTreadResolversTest {
         assertEquals(JobTreadCreateReadiness.BLOCKED_MISSING_TITLE, readiness)
     }
 
+    @Test
+    fun blocksCreateWhenOrganizationSelectionIsStillRequired() {
+        val readiness = JobTreadResolvers.determineCreateReadiness(
+            intent = intent(title = "Call customer"),
+            hasJobTreadConfig = true,
+            lookupInFlight = false,
+            lookupErrorMessage = null,
+            summary = null,
+            organizationSelectionRequired = true
+        )
+
+        assertEquals(
+            JobTreadCreateReadiness.BLOCKED_ORGANIZATION_SELECTION_REQUIRED,
+            readiness
+        )
+    }
+
     private fun intent(
         title: String? = "Call customer",
         assigneeReference: String? = null,

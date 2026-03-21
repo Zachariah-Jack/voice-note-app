@@ -28,6 +28,7 @@ enum class JobTreadCreateReadiness(val label: String) {
     BLOCKED_MISSING_TITLE("Blocked by missing title"),
     BLOCKED_MISSING_JOBTREAD_CONFIG("Blocked by missing JobTread config"),
     BLOCKED_LOOKUP_LOADING("Blocked while JobTread lookup is running"),
+    BLOCKED_ORGANIZATION_SELECTION_REQUIRED("Blocked by unresolved organization selection"),
     BLOCKED_LOOKUP_ERROR("Blocked by JobTread lookup error"),
     BLOCKED_UNRESOLVED_ASSIGNEE("Blocked by unresolved assignee"),
     BLOCKED_UNRESOLVED_JOB("Blocked by unresolved job"),
@@ -82,7 +83,8 @@ object JobTreadResolvers {
         hasJobTreadConfig: Boolean,
         lookupInFlight: Boolean,
         lookupErrorMessage: String?,
-        summary: JobTreadResolutionSummary?
+        summary: JobTreadResolutionSummary?,
+        organizationSelectionRequired: Boolean = false
     ): JobTreadCreateReadiness {
         if (intent == null || MissingCreateTodoField.TITLE in intent.missingFields) {
             return JobTreadCreateReadiness.BLOCKED_MISSING_TITLE
@@ -92,6 +94,9 @@ object JobTreadResolvers {
         }
         if (lookupInFlight) {
             return JobTreadCreateReadiness.BLOCKED_LOOKUP_LOADING
+        }
+        if (organizationSelectionRequired) {
+            return JobTreadCreateReadiness.BLOCKED_ORGANIZATION_SELECTION_REQUIRED
         }
         if (lookupErrorMessage != null) {
             return JobTreadCreateReadiness.BLOCKED_LOOKUP_ERROR

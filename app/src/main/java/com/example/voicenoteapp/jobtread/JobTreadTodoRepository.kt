@@ -41,7 +41,9 @@ class JobTreadTodoRepository(
                 message = result.message
             )
 
-            is JobTreadApiResult.Failure -> JobTreadTodoCreateResult.Failure(result.message)
+            is JobTreadApiResult.Failure -> JobTreadTodoCreateResult.Failure(
+                humanizeCreateFailure(result.message, input)
+            )
         }
     }
 
@@ -133,6 +135,26 @@ class JobTreadTodoRepository(
             dueDateIso = taskObject.string("endDate"),
             dueTimeLocal = taskObject.string("endTime")
         )
+    }
+
+    private fun humanizeCreateFailure(
+        message: String,
+        input: JobTreadTodoCreateInput
+    ): String {
+        val normalized = message.lowercase()
+        return if (
+            input.resolvedJobId == null &&
+            (
+                "target" in normalized ||
+                    "targettype" in normalized ||
+                    "targetid" in normalized ||
+                    "job" in normalized
+                )
+        ) {
+            "$message This JobTread grant or mutation appears to require a resolved job target before a To-Do can be created."
+        } else {
+            message
+        }
     }
 
     private fun JsonObject.string(key: String): String? {

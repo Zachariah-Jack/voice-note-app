@@ -51,6 +51,7 @@ import com.example.voicenoteapp.jobtread.JobTreadCreateReadiness
 import com.example.voicenoteapp.jobtread.JobTreadCreatedTodo
 import com.example.voicenoteapp.jobtread.JobTreadJob
 import com.example.voicenoteapp.jobtread.JobTreadLookupResolution
+import com.example.voicenoteapp.jobtread.JobTreadOrganization
 import com.example.voicenoteapp.settings.AssistantSettings
 import java.util.Locale
 
@@ -217,7 +218,7 @@ fun JobTreadAssistantScreen(
         ) {
             Text("How can I help?", style = MaterialTheme.typography.headlineSmall)
             Text(
-                text = "Speak one request and I will parse it into a strict create_todo result, resolve any JobTread assignee or job references, and only send the create call when the request is fully safe.",
+                text = "Speak one request and I will parse it into a strict create_todo result, resolve the active JobTread organization, match any assignee or job references, and only send the create call when the request is fully safe.",
                 style = MaterialTheme.typography.bodyLarge
             )
 
@@ -283,10 +284,13 @@ fun JobTreadAssistantScreen(
                     parserMode = state.parserMode,
                     parserLabel = state.parserLabel
                 )
-                JobTreadLookupCard(state)
+                JobTreadLookupCard(
+                    state = state,
+                    onOpenSettings = onOpenSettings
+                )
                 CreateStatusCard(state)
                 Text(
-                    text = state.createReadiness.label,
+                    text = readinessLabel(state),
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (state.createReadiness == JobTreadCreateReadiness.READY) {
                         MaterialTheme.colorScheme.primary
@@ -376,6 +380,9 @@ private fun ConfigurationStatusCard(
                     "JobTread: Missing ${settings.missingJobTreadFields.joinToString(", ") { it.label }}"
                 }
             )
+            Text(
+                text = "Default JobTread org: ${settings.savedJobTreadOrganizationLabel ?: "Not saved yet"}"
+            )
             if (parserMode == CreateTodoParserMode.FALLBACK && !settings.hasOpenAiConfig) {
                 Text(
                     text = "OpenAI is not fully configured, so this screen will use the local fallback parser.",
@@ -392,19 +399,22 @@ private fun ConfigurationStatusCard(
 }
 
 @Composable
-private fun JobTreadLookupCard(state: JobTreadAssistantUiState) {
+private fun JobTreadLookupCard(
+    state: JobTreadAssistantUiState,
+    onOpenSettings: () -> Unit
+) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text("JobTread Lookup", style = MaterialTheme.typography.titleMedium)
-            ParsedField("Create Readiness", state.createReadiness.label)
+            ParsedField("Create Readiness", readinessLabel(state))
 
             when (state.lookupStage) {
                 JobTreadLookupStage.LOADING -> {
                     CircularProgressIndicator()
-                    Text("Resolving JobTread assignee and job references...")
+                    Text("Resolving JobTread organization, assignee, and job references...")
                 }
 
                 JobTreadLookupStage.ERROR -> {
@@ -418,30 +428,49 @@ private fun JobTreadLookupCard(state: JobTreadAssistantUiState) {
                 JobTreadLookupStage.READY -> Unit
             }
 
-            state.lookupSummary?.let { summary ->
-                ParsedField("Organization", summary.organization.name)
-                ParsedField(
-                    "Assignee Match",
-                    resolutionLabel(
-                        resolution = summary.assigneeResolution,
-                        resolvedLabel = JobTreadAssignee::summaryLabel
-                    )
-                )
-                ParsedField(
-                    "Job Match",
-                    resolutionLabel(
-                        resolution = summary.jobResolution,
-                        resolvedLabel = JobTreadJob::summaryLabel
-                    )
-                )
-                if (summary.messages.isNotEmpty()) {
-                    ParsedField("Lookup Messages", summary.messages.joinToString("; "))
-                }
-            } ?: run {
+            state.activeOrganization?.let { organization ->
+                ParsedField("Active Organization", organization.name)
+            }
+
+            if (state.organizationSelectionMessage != null) {
                 Text(
-                    text = idleLookupMessage(state),
-                    style = MaterialTheme.typography.bodyMedium
+                    text = state.organizationSelectionMessage,
+                    color = MaterialTheme.colorScheme.error
                 )
+                if (state.availableOrganizations.isNotEmpty()) {
+                    ParsedField(
+                        "Accessible Organizations",
+                        state.availableOrganizations.joinToString(" | ") { it.name }
+                    )
+                }
+                TextButton(onClick = onOpenSettings, modifier = Modifier.fillMaxWidth()) {
+                    Text("Choose Default Organization")
+                }
+            } else {
+                state.lookupSummary?.let { summary ->
+                    ParsedField(
+                        "Assignee Match",
+                        resolutionLabel(
+                            resolution = summary.assigneeResolution,
+                            resolvedLabel = JobTreadAssignee::summaryLabel
+                        )
+                    )
+                    ParsedField(
+                        "Job Match",
+                        resolutionLabel(
+                            resolution = summary.jobResolution,
+                            resolvedLabel = JobTreadJob::summaryLabel
+                        )
+                    )
+                    if (summary.messages.isNotEmpty()) {
+                        ParsedField("Lookup Messages", summary.messages.joinToString("; "))
+                    }
+                } ?: run {
+                    Text(
+                        text = idleLookupMessage(state),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
             }
         }
     }
@@ -454,10 +483,15 @@ private fun CreateStatusCard(state: JobTreadAssistantUiState) {
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            ParsedField(
+                "Selected Organization",
+                state.activeOrganization?.name ?: "Not resolved yet"
+            )
+
             when (state.createStage) {
                 JobTreadCreateStage.IDLE -> {
                     Text("Prepared for create", style = MaterialTheme.typography.titleMedium)
-                    Text("Nothing has been sent to JobTread yet. Confirm only after the parsed fields and lookup matches look correct.")
+                    Text("Nothing has been sent to JobTread yet. Confirm only after the parsed fields, organization, and lookup matches look correct.")
                 }
 
                 JobTreadCreateStage.SENDING -> {
@@ -471,7 +505,10 @@ private fun CreateStatusCard(state: JobTreadAssistantUiState) {
                     Text("Created in JobTread", style = MaterialTheme.typography.titleMedium)
                     Text("This request was sent successfully.")
                     if (createdTodo != null) {
-                        CreatedTodoDetails(createdTodo)
+                        CreatedTodoDetails(
+                            createdTodo = createdTodo,
+                            activeOrganization = state.activeOrganization
+                        )
                     }
                 }
 
@@ -539,9 +576,13 @@ private fun ParsedCreateTodoCard(
 }
 
 @Composable
-private fun CreatedTodoDetails(createdTodo: JobTreadCreatedTodo) {
+private fun CreatedTodoDetails(
+    createdTodo: JobTreadCreatedTodo,
+    activeOrganization: JobTreadOrganization?
+) {
     ParsedField("JobTread ID", createdTodo.id)
     ParsedField("Name", createdTodo.name)
+    ParsedField("Organization", activeOrganization?.name ?: "Not returned")
     ParsedField("Description", createdTodo.description ?: "Not returned")
     ParsedField("Target Type", createdTodo.targetType ?: "Not returned")
     ParsedField("Due Date", createdTodo.dueDateIso ?: "Not returned")
@@ -564,9 +605,21 @@ private fun idleLookupMessage(state: JobTreadAssistantUiState): String {
         !state.settings.hasJobTreadConfig -> "JobTread lookup is unavailable until the Pave URL and grant key are saved."
         state.lookupStage == JobTreadLookupStage.LOADING -> "Resolving JobTread references..."
         state.parsedIntent == null -> "Lookup will run after parsing."
+        state.activeOrganization == null -> "Organization and lookup details will appear here."
         state.parsedIntent.todo.assigneeReferenceText.isNullOrBlank() &&
-            state.parsedIntent.todo.jobReferenceText.isNullOrBlank() -> "No assignee or job reference was parsed, so no lookup was required."
+            state.parsedIntent.todo.jobReferenceText.isNullOrBlank() -> "No assignee or job reference was parsed, so only organization context was required."
         else -> "Lookup details will appear here."
+    }
+}
+
+private fun readinessLabel(state: JobTreadAssistantUiState): String {
+    return if (
+        state.createReadiness == JobTreadCreateReadiness.BLOCKED_ORGANIZATION_SELECTION_REQUIRED &&
+        state.organizationSelectionMessage != null
+    ) {
+        state.organizationSelectionMessage
+    } else {
+        state.createReadiness.label
     }
 }
 

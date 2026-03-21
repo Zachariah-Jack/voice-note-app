@@ -18,6 +18,13 @@ data class JobTreadOrganization(
     val name: String
 )
 
+data class JobTreadOrganizationSelection(
+    val activeOrganization: JobTreadOrganization,
+    val organizations: List<JobTreadOrganization>,
+    val wasAutoSelected: Boolean,
+    val shouldPersistSelection: Boolean
+)
+
 data class JobTreadAssignee(
     val membershipId: String,
     val userId: String?,
@@ -73,18 +80,39 @@ data class JobTreadLookupSnapshot(
     val organization: JobTreadOrganization,
     val assignees: List<JobTreadAssignee>,
     val jobs: List<JobTreadJob>,
-    val warnings: List<String> = emptyList()
+    val warnings: List<String> = emptyList(),
+    val availableOrganizations: List<JobTreadOrganization> = listOf(organization),
+    val organizationWasAutoSelected: Boolean = false
 )
 
+sealed interface JobTreadOrganizationLoadResult {
+    data class Success(val selection: JobTreadOrganizationSelection) : JobTreadOrganizationLoadResult
+
+    data class MissingConfiguration(
+        val fields: List<AssistantConfigField>,
+        val message: String
+    ) : JobTreadOrganizationLoadResult
+
+    data class SelectionRequired(
+        val organizations: List<JobTreadOrganization>,
+        val message: String
+    ) : JobTreadOrganizationLoadResult
+
+    data class Failure(val message: String) : JobTreadOrganizationLoadResult
+}
+
 sealed interface JobTreadLookupLoadResult {
-    data class Success(val snapshot: JobTreadLookupSnapshot) : JobTreadLookupLoadResult
+    data class Success(
+        val snapshot: JobTreadLookupSnapshot,
+        val shouldPersistSelection: Boolean = false
+    ) : JobTreadLookupLoadResult
 
     data class MissingConfiguration(
         val fields: List<AssistantConfigField>,
         val message: String
     ) : JobTreadLookupLoadResult
 
-    data class AmbiguousOrganization(
+    data class SelectionRequired(
         val organizations: List<JobTreadOrganization>,
         val message: String
     ) : JobTreadLookupLoadResult

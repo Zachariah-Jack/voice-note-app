@@ -15,66 +15,85 @@ import kotlinx.serialization.json.put
 class JobTreadLookupRepository(
     private val apiClient: JobTreadApiClient
 ) {
-    suspend fun loadLookupSnapshot(settings: AssistantSettings): JobTreadLookupLoadResult {
-        return when (val organizationResult = resolveOrganization(settings)) {
-            is JobTreadLookupLoadResult.Success -> loadSnapshotForOrganization(
-                organization = organizationResult.snapshot.organization,
-                settings = settings
-            )
-
-            is JobTreadLookupLoadResult.MissingConfiguration -> organizationResult
-            is JobTreadLookupLoadResult.AmbiguousOrganization -> organizationResult
-            is JobTreadLookupLoadResult.Failure -> organizationResult
-        }
-    }
-
-    private suspend fun resolveOrganization(settings: AssistantSettings): JobTreadLookupLoadResult {
+    suspend fun loadOrganizations(settings: AssistantSettings): JobTreadOrganizationLoadResult {
         return when (val result = apiClient.executeReadOnlyQuery(buildCurrentGrantQuery(), settings)) {
             is JobTreadApiResult.Success -> {
                 val organizations = parseOrganizations(result.value)
                 when {
-                    organizations.isEmpty() -> JobTreadLookupLoadResult.Failure(
-                        "The JobTread grant did not expose any organizations for lookup."
+                    organizations.isEmpty() -> JobTreadOrganizationLoadResult.Failure(
+                        "The JobTread grant did not expose any organizations."
                     )
 
-                    organizations.size == 1 -> JobTreadLookupLoadResult.Success(
-                        JobTreadLookupSnapshot(
-                            organization = organizations.single(),
-                            assignees = emptyList(),
-                            jobs = emptyList()
+                    else -> when (
+                        val resolution = resolveOrganizationSelection(
+                            organizations = organizations,
+                            savedOrganizationId = settings.jobTreadOrganizationId,
+                            savedOrganizationName = settings.jobTreadOrganizationName
                         )
-                    )
+                    ) {
+                        is JobTreadOrganizationSelectionResolution.Selected -> {
+                            JobTreadOrganizationLoadResult.Success(resolution.selection)
+                        }
 
-                    else -> JobTreadLookupLoadResult.AmbiguousOrganization(
-                        organizations = organizations,
-                        message = "The JobTread grant can access multiple organizations. Use a grant scoped to one organization for deterministic lookup."
-                    )
+                        is JobTreadOrganizationSelectionResolution.SelectionRequired -> {
+                            JobTreadOrganizationLoadResult.SelectionRequired(
+                                organizations = resolution.organizations,
+                                message = resolution.message
+                            )
+                        }
+                    }
                 }
             }
 
-            is JobTreadApiResult.MissingConfiguration -> JobTreadLookupLoadResult.MissingConfiguration(
+            is JobTreadApiResult.MissingConfiguration -> JobTreadOrganizationLoadResult.MissingConfiguration(
                 fields = result.fields,
                 message = result.message
             )
 
-            is JobTreadApiResult.Failure -> JobTreadLookupLoadResult.Failure(result.message)
+            is JobTreadApiResult.Failure -> JobTreadOrganizationLoadResult.Failure(result.message)
+        }
+    }
+
+    suspend fun loadLookupSnapshot(settings: AssistantSettings): JobTreadLookupLoadResult {
+        return when (val organizationResult = loadOrganizations(settings)) {
+            is JobTreadOrganizationLoadResult.Success -> loadSnapshotForOrganization(
+                selection = organizationResult.selection,
+                settings = settings
+            )
+
+            is JobTreadOrganizationLoadResult.MissingConfiguration -> JobTreadLookupLoadResult.MissingConfiguration(
+                fields = organizationResult.fields,
+                message = organizationResult.message
+            )
+
+            is JobTreadOrganizationLoadResult.SelectionRequired -> JobTreadLookupLoadResult.SelectionRequired(
+                organizations = organizationResult.organizations,
+                message = organizationResult.message
+            )
+
+            is JobTreadOrganizationLoadResult.Failure -> JobTreadLookupLoadResult.Failure(
+                organizationResult.message
+            )
         }
     }
 
     private suspend fun loadSnapshotForOrganization(
-        organization: JobTreadOrganization,
+        selection: JobTreadOrganizationSelection,
         settings: AssistantSettings
     ): JobTreadLookupLoadResult {
-        return when (val result = apiClient.executeReadOnlyQuery(buildLookupQuery(organization.id), settings)) {
+        return when (val result = apiClient.executeReadOnlyQuery(buildLookupQuery(selection.activeOrganization.id), settings)) {
             is JobTreadApiResult.Success -> {
                 try {
                     JobTreadLookupLoadResult.Success(
                         snapshot = parseLookupSnapshot(
                             root = result.value,
-                            organization = organization
-                        )
+                            organization = selection.activeOrganization,
+                            availableOrganizations = selection.organizations,
+                            organizationWasAutoSelected = selection.wasAutoSelected
+                        ),
+                        shouldPersistSelection = selection.shouldPersistSelection
                     )
-                } catch (error: Exception) {
+                } catch (_: Exception) {
                     JobTreadLookupLoadResult.Failure(
                         "JobTread lookup response was not in the expected format."
                     )
@@ -311,7 +330,9 @@ class JobTreadLookupRepository(
 
     private fun parseLookupSnapshot(
         root: JsonObject,
-        organization: JobTreadOrganization
+        organization: JobTreadOrganization,
+        availableOrganizations: List<JobTreadOrganization>,
+        organizationWasAutoSelected: Boolean
     ): JobTreadLookupSnapshot {
         val organizationObject = root["organization"]?.jsonObject
             ?: throw IllegalStateException("Missing organization node.")
@@ -346,7 +367,9 @@ class JobTreadLookupRepository(
             organization = organization,
             assignees = assignees,
             jobs = jobs,
-            warnings = warnings
+            warnings = warnings,
+            availableOrganizations = availableOrganizations,
+            organizationWasAutoSelected = organizationWasAutoSelected
         )
     }
 
@@ -402,4 +425,63 @@ class JobTreadLookupRepository(
     private fun stringValue(value: String): JsonElement = kotlinx.serialization.json.JsonPrimitive(value)
 
     private fun booleanValue(value: Boolean): JsonElement = kotlinx.serialization.json.JsonPrimitive(value)
+}
+
+internal sealed interface JobTreadOrganizationSelectionResolution {
+    data class Selected(val selection: JobTreadOrganizationSelection) : JobTreadOrganizationSelectionResolution
+
+    data class SelectionRequired(
+        val organizations: List<JobTreadOrganization>,
+        val message: String
+    ) : JobTreadOrganizationSelectionResolution
+}
+
+internal fun resolveOrganizationSelection(
+    organizations: List<JobTreadOrganization>,
+    savedOrganizationId: String,
+    savedOrganizationName: String
+): JobTreadOrganizationSelectionResolution {
+    val distinctOrganizations = organizations.distinctBy { it.id }
+    val normalizedSavedId = savedOrganizationId.trim()
+    val normalizedSavedName = savedOrganizationName.trim()
+    val savedMatch = distinctOrganizations.firstOrNull { organization ->
+        organization.id.equals(normalizedSavedId, ignoreCase = true)
+    }
+
+    if (distinctOrganizations.size == 1) {
+        val onlyOrganization = distinctOrganizations.single()
+        val wasAutoSelected = savedMatch == null
+        val shouldPersistSelection = wasAutoSelected ||
+            !onlyOrganization.name.equals(normalizedSavedName, ignoreCase = true)
+
+        return JobTreadOrganizationSelectionResolution.Selected(
+            selection = JobTreadOrganizationSelection(
+                activeOrganization = onlyOrganization,
+                organizations = distinctOrganizations,
+                wasAutoSelected = wasAutoSelected,
+                shouldPersistSelection = shouldPersistSelection
+            )
+        )
+    }
+
+    if (savedMatch != null) {
+        val shouldPersistSelection = !savedMatch.name.equals(normalizedSavedName, ignoreCase = true)
+        return JobTreadOrganizationSelectionResolution.Selected(
+            selection = JobTreadOrganizationSelection(
+                activeOrganization = savedMatch,
+                organizations = distinctOrganizations,
+                wasAutoSelected = false,
+                shouldPersistSelection = shouldPersistSelection
+            )
+        )
+    }
+
+    return JobTreadOrganizationSelectionResolution.SelectionRequired(
+        organizations = distinctOrganizations,
+        message = if (normalizedSavedId.isBlank()) {
+            "This JobTread grant can access multiple organizations. Choose a default organization in Settings before lookup or create will run."
+        } else {
+            "The saved JobTread organization is no longer available to this grant. Choose a new default organization in Settings."
+        }
+    )
 }

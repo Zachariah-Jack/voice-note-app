@@ -18,7 +18,9 @@ class CredentialStore(context: Context) {
             openAiApiKey = prefs[OPENAI_API_KEY].orEmpty(),
             openAiModel = prefs[OPENAI_MODEL].orEmpty(),
             jobTreadBaseUrl = prefs[JOBTREAD_BASE_URL].orEmpty(),
-            jobTreadApiKey = prefs[JOBTREAD_API_KEY].orEmpty()
+            jobTreadApiKey = prefs[JOBTREAD_API_KEY].orEmpty(),
+            jobTreadOrganizationId = prefs[JOBTREAD_ORGANIZATION_ID].orEmpty(),
+            jobTreadOrganizationName = prefs[JOBTREAD_ORGANIZATION_NAME].orEmpty()
         )
     }
 
@@ -28,6 +30,8 @@ class CredentialStore(context: Context) {
             prefs[OPENAI_MODEL] = updated.openAiModel.trim()
             prefs[JOBTREAD_BASE_URL] = updated.jobTreadBaseUrl.trim()
             prefs[JOBTREAD_API_KEY] = updated.jobTreadApiKey.trim()
+            prefs[JOBTREAD_ORGANIZATION_ID] = updated.jobTreadOrganizationId.trim()
+            prefs[JOBTREAD_ORGANIZATION_NAME] = updated.jobTreadOrganizationName.trim()
         }
     }
 
@@ -38,5 +42,7 @@ class CredentialStore(context: Context) {
         val OPENAI_MODEL = stringPreferencesKey("openai_model")
         val JOBTREAD_BASE_URL = stringPreferencesKey("jobtread_base_url")
         val JOBTREAD_API_KEY = stringPreferencesKey("jobtread_api_key")
+        val JOBTREAD_ORGANIZATION_ID = stringPreferencesKey("jobtread_organization_id")
+        val JOBTREAD_ORGANIZATION_NAME = stringPreferencesKey("jobtread_organization_name")
     }
 }

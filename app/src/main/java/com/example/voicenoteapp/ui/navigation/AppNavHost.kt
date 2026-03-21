@@ -108,6 +108,7 @@ fun AppNavHost(
         composable(Route.Settings.route) {
             SettingsScreen(
                 credentialStore = credentialStore,
+                jobTreadLookupRepository = jobTreadLookupRepository,
                 onBack = { navController.popBackStack() }
             )
         }

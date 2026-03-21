@@ -12,6 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -19,17 +20,25 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.example.voicenoteapp.jobtread.JobTreadLookupRepository
+import com.example.voicenoteapp.jobtread.JobTreadOrganization
+import com.example.voicenoteapp.jobtread.JobTreadOrganizationLoadResult
 import com.example.voicenoteapp.settings.AssistantSettings
 import com.example.voicenoteapp.settings.CredentialStore
 import kotlinx.coroutines.launch
@@ -38,6 +47,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun SettingsScreen(
     credentialStore: CredentialStore,
+    jobTreadLookupRepository: JobTreadLookupRepository,
     onBack: () -> Unit
 ) {
     val savedSettings by credentialStore.settings.collectAsState(initial = AssistantSettings())
@@ -47,7 +57,84 @@ fun SettingsScreen(
     var openAiModel by rememberSaveable(savedSettings.openAiModel) { mutableStateOf(savedSettings.openAiModel) }
     var jobTreadBaseUrl by rememberSaveable(savedSettings.jobTreadBaseUrl) { mutableStateOf(savedSettings.jobTreadBaseUrl) }
     var jobTreadApiKey by rememberSaveable(savedSettings.jobTreadApiKey) { mutableStateOf(savedSettings.jobTreadApiKey) }
+    var jobTreadOrganizationId by rememberSaveable(savedSettings.jobTreadOrganizationId) {
+        mutableStateOf(savedSettings.jobTreadOrganizationId)
+    }
+    var jobTreadOrganizationName by rememberSaveable(savedSettings.jobTreadOrganizationName) {
+        mutableStateOf(savedSettings.jobTreadOrganizationName)
+    }
     var saveMessage by rememberSaveable { mutableStateOf<String?>(null) }
+    var organizationMessage by rememberSaveable { mutableStateOf<String?>(null) }
+    var organizationErrorMessage by rememberSaveable { mutableStateOf<String?>(null) }
+    var isOrganizationLoading by remember { mutableStateOf(false) }
+    var refreshNonce by remember { mutableIntStateOf(0) }
+    val organizationOptions = remember { mutableStateListOf<JobTreadOrganization>() }
+
+    LaunchedEffect(
+        savedSettings.jobTreadBaseUrl,
+        savedSettings.jobTreadApiKey,
+        savedSettings.jobTreadOrganizationId,
+        savedSettings.jobTreadOrganizationName,
+        refreshNonce
+    ) {
+        organizationOptions.clear()
+        organizationMessage = null
+        organizationErrorMessage = null
+
+        if (!savedSettings.hasJobTreadConfig) {
+            isOrganizationLoading = false
+            organizationMessage = "Save the JobTread Pave URL and grant key to load accessible organizations."
+            return@LaunchedEffect
+        }
+
+        isOrganizationLoading = true
+        when (val result = jobTreadLookupRepository.loadOrganizations(savedSettings)) {
+            is JobTreadOrganizationLoadResult.Success -> {
+                isOrganizationLoading = false
+                organizationOptions.addAll(result.selection.organizations)
+                jobTreadOrganizationId = result.selection.activeOrganization.id
+                jobTreadOrganizationName = result.selection.activeOrganization.name
+                organizationMessage = if (result.selection.wasAutoSelected) {
+                    "Only one accessible organization was found, so it was selected automatically."
+                } else {
+                    "The saved default organization is ready to use."
+                }
+
+                if (result.selection.shouldPersistSelection) {
+                    credentialStore.save(
+                        savedSettings.copy(
+                            jobTreadOrganizationId = result.selection.activeOrganization.id,
+                            jobTreadOrganizationName = result.selection.activeOrganization.name
+                        )
+                    )
+                    saveMessage = "Default JobTread organization updated locally."
+                }
+            }
+
+            is JobTreadOrganizationLoadResult.SelectionRequired -> {
+                isOrganizationLoading = false
+                organizationOptions.addAll(result.organizations)
+                if (result.organizations.none { organization ->
+                        organization.id.equals(jobTreadOrganizationId, ignoreCase = true)
+                    }
+                ) {
+                    jobTreadOrganizationId = ""
+                    jobTreadOrganizationName = ""
+                }
+                organizationMessage = result.message
+            }
+
+            is JobTreadOrganizationLoadResult.MissingConfiguration -> {
+                isOrganizationLoading = false
+                organizationErrorMessage = result.message
+            }
+
+            is JobTreadOrganizationLoadResult.Failure -> {
+                isOrganizationLoading = false
+                organizationErrorMessage = result.message
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -73,7 +160,7 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodyLarge
             )
             Text(
-                text = "OpenAI settings power real voice parsing when configured. JobTread settings now power read-only lookup and will be reused for the create action next.",
+                text = "OpenAI settings power real voice parsing when configured. JobTread settings power read-only lookup, organization selection, and live To-Do creation.",
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(top = 12.dp)
             )
@@ -130,6 +217,86 @@ fun SettingsScreen(
                 singleLine = true
             )
 
+            SettingsSectionTitle("JobTread Organization")
+            Text(
+                text = "The assistant uses one saved default organization when a grant can access more than one.",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Text(
+                text = "Saved default: ${savedSettings.savedJobTreadOrganizationLabel ?: "Not saved yet"}",
+                modifier = Modifier.padding(top = 8.dp)
+            )
+            Text(
+                text = "Pending selection: ${jobTreadOrganizationName.ifBlank { "None selected" }}",
+                modifier = Modifier.padding(top = 4.dp)
+            )
+
+            if (isOrganizationLoading) {
+                CircularProgressIndicator(modifier = Modifier.padding(top = 12.dp))
+            }
+
+            organizationMessage?.let { message ->
+                Text(
+                    text = message,
+                    modifier = Modifier.padding(top = 12.dp),
+                    color = if (jobTreadOrganizationId.isBlank() && organizationOptions.size > 1) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    }
+                )
+            }
+
+            organizationErrorMessage?.let { message ->
+                Text(
+                    text = message,
+                    modifier = Modifier.padding(top = 12.dp),
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+
+            if (organizationOptions.isNotEmpty()) {
+                Text(
+                    text = "Accessible organizations",
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.padding(top = 12.dp, bottom = 8.dp)
+                )
+                organizationOptions.forEach { organization ->
+                    val isSelected = organization.id.equals(jobTreadOrganizationId, ignoreCase = true)
+                    if (isSelected) {
+                        Button(
+                            onClick = {},
+                            enabled = false,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp)
+                        ) {
+                            Text("Default: ${organization.name}")
+                        }
+                    } else {
+                        TextButton(
+                            onClick = {
+                                jobTreadOrganizationId = organization.id
+                                jobTreadOrganizationName = organization.name
+                                saveMessage = null
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Use ${organization.name}")
+                        }
+                    }
+                }
+            }
+
+            TextButton(
+                onClick = { refreshNonce += 1 },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp)
+            ) {
+                Text("Refresh Organizations")
+            }
+
             Button(
                 onClick = {
                     scope.launch {
@@ -138,7 +305,9 @@ fun SettingsScreen(
                                 openAiApiKey = openAiApiKey,
                                 openAiModel = openAiModel,
                                 jobTreadBaseUrl = jobTreadBaseUrl,
-                                jobTreadApiKey = jobTreadApiKey
+                                jobTreadApiKey = jobTreadApiKey,
+                                jobTreadOrganizationId = jobTreadOrganizationId,
+                                jobTreadOrganizationName = jobTreadOrganizationName
                             )
                         )
                         saveMessage = "Settings saved locally."
@@ -176,6 +345,10 @@ fun SettingsScreen(
             )
             Text(
                 text = "JobTread: ${if (savedSettings.hasJobTreadConfig) "Configured" else "Missing ${savedSettings.missingJobTreadFields.joinToString(", ") { it.label }}"}",
+                modifier = Modifier.padding(top = 4.dp)
+            )
+            Text(
+                text = "JobTread default org: ${savedSettings.savedJobTreadOrganizationLabel ?: "Not saved"}",
                 modifier = Modifier.padding(top = 4.dp)
             )
         }

@@ -11,6 +11,8 @@ import com.example.voicenoteapp.jobtread.JobTreadCreateReadiness
 import com.example.voicenoteapp.jobtread.JobTreadCreatedTodo
 import com.example.voicenoteapp.jobtread.JobTreadLookupLoadResult
 import com.example.voicenoteapp.jobtread.JobTreadLookupRepository
+import com.example.voicenoteapp.jobtread.JobTreadLookupSnapshot
+import com.example.voicenoteapp.jobtread.JobTreadOrganization
 import com.example.voicenoteapp.jobtread.JobTreadResolutionSummary
 import com.example.voicenoteapp.jobtread.JobTreadResolvers
 import com.example.voicenoteapp.jobtread.JobTreadTodoCreateResult
@@ -58,6 +60,9 @@ data class JobTreadAssistantUiState(
     val lookupStage: JobTreadLookupStage = JobTreadLookupStage.IDLE,
     val lookupSummary: JobTreadResolutionSummary? = null,
     val lookupErrorMessage: String? = null,
+    val activeOrganization: JobTreadOrganization? = null,
+    val availableOrganizations: List<JobTreadOrganization> = emptyList(),
+    val organizationSelectionMessage: String? = null,
     val createStage: JobTreadCreateStage = JobTreadCreateStage.IDLE,
     val createErrorMessage: String? = null,
     val createdTodo: JobTreadCreatedTodo? = null,
@@ -69,7 +74,8 @@ data class JobTreadAssistantUiState(
             hasJobTreadConfig = settings.hasJobTreadConfig,
             lookupInFlight = lookupStage == JobTreadLookupStage.LOADING,
             lookupErrorMessage = lookupErrorMessage,
-            summary = lookupSummary
+            summary = lookupSummary,
+            organizationSelectionRequired = organizationSelectionMessage != null
         )
 
     val canSubmitCreate: Boolean
@@ -80,7 +86,7 @@ data class JobTreadAssistantUiState(
 }
 
 class JobTreadAssistantViewModel(
-    credentialStore: CredentialStore,
+    private val credentialStore: CredentialStore,
     private val createTodoParser: CreateTodoParser,
     private val jobTreadLookupRepository: JobTreadLookupRepository,
     private val jobTreadTodoRepository: JobTreadTodoRepository
@@ -120,6 +126,9 @@ class JobTreadAssistantViewModel(
             lookupStage = JobTreadLookupStage.IDLE,
             lookupSummary = null,
             lookupErrorMessage = null,
+            activeOrganization = null,
+            availableOrganizations = emptyList(),
+            organizationSelectionMessage = null,
             createStage = JobTreadCreateStage.IDLE,
             createErrorMessage = null,
             createdTodo = null,
@@ -149,6 +158,9 @@ class JobTreadAssistantViewModel(
             lookupStage = JobTreadLookupStage.IDLE,
             lookupSummary = null,
             lookupErrorMessage = null,
+            activeOrganization = null,
+            availableOrganizations = emptyList(),
+            organizationSelectionMessage = null,
             createStage = JobTreadCreateStage.IDLE,
             createErrorMessage = null,
             createdTodo = null
@@ -162,7 +174,12 @@ class JobTreadAssistantViewModel(
                         copy(
                             stage = JobTreadAssistantStage.RESULT,
                             parsedIntent = parsedIntent,
-                            errorMessage = null
+                            errorMessage = null,
+                            lookupStage = if (currentSettings.hasJobTreadConfig) {
+                                JobTreadLookupStage.LOADING
+                            } else {
+                                JobTreadLookupStage.IDLE
+                            }
                         )
                     }
                     resolveLookups(parsedIntent)
@@ -200,6 +217,9 @@ class JobTreadAssistantViewModel(
             lookupStage = JobTreadLookupStage.IDLE,
             lookupSummary = null,
             lookupErrorMessage = null,
+            activeOrganization = null,
+            availableOrganizations = emptyList(),
+            organizationSelectionMessage = null,
             createStage = JobTreadCreateStage.IDLE,
             createErrorMessage = null,
             createdTodo = null
@@ -215,6 +235,9 @@ class JobTreadAssistantViewModel(
             lookupStage = JobTreadLookupStage.IDLE,
             lookupSummary = null,
             lookupErrorMessage = null,
+            activeOrganization = null,
+            availableOrganizations = emptyList(),
+            organizationSelectionMessage = null,
             createStage = JobTreadCreateStage.IDLE,
             createErrorMessage = null,
             createdTodo = null
@@ -237,7 +260,12 @@ class JobTreadAssistantViewModel(
             _uiState.update {
                 it.copy(
                     createStage = JobTreadCreateStage.ERROR,
-                    createErrorMessage = state.createReadiness.label
+                    createErrorMessage = when (state.createReadiness) {
+                        JobTreadCreateReadiness.BLOCKED_ORGANIZATION_SELECTION_REQUIRED ->
+                            state.organizationSelectionMessage ?: state.createReadiness.label
+
+                        else -> state.createReadiness.label
+                    }
                 )
             }
             return
@@ -301,26 +329,23 @@ class JobTreadAssistantViewModel(
         if (!currentSettings.hasJobTreadConfig) {
             return
         }
-        if (!requiresJobTreadLookup(intent)) {
-            return
-        }
 
         _uiState.update {
             it.copy(
                 lookupStage = JobTreadLookupStage.LOADING,
                 lookupSummary = null,
-                lookupErrorMessage = null
+                lookupErrorMessage = null,
+                activeOrganization = null,
+                availableOrganizations = emptyList(),
+                organizationSelectionMessage = null
             )
         }
 
         when (val result = jobTreadLookupRepository.loadLookupSnapshot(currentSettings)) {
             is JobTreadLookupLoadResult.Success -> {
-                _uiState.update {
-                    it.copy(
-                        lookupStage = JobTreadLookupStage.READY,
-                        lookupSummary = JobTreadResolvers.resolve(intent, result.snapshot),
-                        lookupErrorMessage = null
-                    )
+                applyLookupSuccess(intent, result.snapshot)
+                if (result.shouldPersistSelection) {
+                    persistSelectedOrganization(result.snapshot.organization)
                 }
             }
 
@@ -329,17 +354,23 @@ class JobTreadAssistantViewModel(
                     it.copy(
                         lookupStage = JobTreadLookupStage.ERROR,
                         lookupSummary = null,
-                        lookupErrorMessage = result.message
+                        lookupErrorMessage = result.message,
+                        activeOrganization = null,
+                        availableOrganizations = emptyList(),
+                        organizationSelectionMessage = null
                     )
                 }
             }
 
-            is JobTreadLookupLoadResult.AmbiguousOrganization -> {
+            is JobTreadLookupLoadResult.SelectionRequired -> {
                 _uiState.update {
                     it.copy(
-                        lookupStage = JobTreadLookupStage.ERROR,
+                        lookupStage = JobTreadLookupStage.READY,
                         lookupSummary = null,
-                        lookupErrorMessage = result.message
+                        lookupErrorMessage = null,
+                        activeOrganization = null,
+                        availableOrganizations = result.organizations,
+                        organizationSelectionMessage = result.message
                     )
                 }
             }
@@ -349,15 +380,49 @@ class JobTreadAssistantViewModel(
                     it.copy(
                         lookupStage = JobTreadLookupStage.ERROR,
                         lookupSummary = null,
-                        lookupErrorMessage = result.message
+                        lookupErrorMessage = result.message,
+                        activeOrganization = null,
+                        availableOrganizations = emptyList(),
+                        organizationSelectionMessage = null
                     )
                 }
             }
         }
     }
 
-    private fun requiresJobTreadLookup(intent: CreateTodoIntent): Boolean {
-        return !intent.todo.assigneeReferenceText.isNullOrBlank() || !intent.todo.jobReferenceText.isNullOrBlank()
+    private fun applyLookupSuccess(
+        intent: CreateTodoIntent,
+        snapshot: JobTreadLookupSnapshot
+    ) {
+        _uiState.update {
+            it.copy(
+                lookupStage = JobTreadLookupStage.READY,
+                lookupSummary = JobTreadResolvers.resolve(intent, snapshot),
+                lookupErrorMessage = null,
+                activeOrganization = snapshot.organization,
+                availableOrganizations = snapshot.availableOrganizations,
+                organizationSelectionMessage = null
+            )
+        }
+    }
+
+    private fun persistSelectedOrganization(organization: JobTreadOrganization) {
+        viewModelScope.launch {
+            val latestSettings = currentSettings
+            if (
+                latestSettings.jobTreadOrganizationId == organization.id &&
+                latestSettings.jobTreadOrganizationName == organization.name
+            ) {
+                return@launch
+            }
+
+            credentialStore.save(
+                latestSettings.copy(
+                    jobTreadOrganizationId = organization.id,
+                    jobTreadOrganizationName = organization.name
+                )
+            )
+        }
     }
 
     private fun applyParserResult(

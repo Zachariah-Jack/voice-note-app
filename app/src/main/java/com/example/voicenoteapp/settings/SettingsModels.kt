@@ -11,7 +11,9 @@ data class AssistantSettings(
     val openAiApiKey: String = "",
     val openAiModel: String = "",
     val jobTreadBaseUrl: String = "",
-    val jobTreadApiKey: String = ""
+    val jobTreadApiKey: String = "",
+    val jobTreadOrganizationId: String = "",
+    val jobTreadOrganizationName: String = ""
 ) {
     val missingOpenAiFields: List<AssistantConfigField>
         get() = buildList {
@@ -33,4 +35,11 @@ data class AssistantSettings(
 
     val hasJobTreadConfig: Boolean
         get() = missingJobTreadFields.isEmpty()
+
+    val hasSavedJobTreadOrganization: Boolean
+        get() = jobTreadOrganizationId.isNotBlank()
+
+    val savedJobTreadOrganizationLabel: String?
+        get() = jobTreadOrganizationName.trim().takeIf { it.isNotBlank() }
+            ?: jobTreadOrganizationId.trim().takeIf { it.isNotBlank() }
 }
