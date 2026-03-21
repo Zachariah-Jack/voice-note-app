@@ -13,6 +13,8 @@ import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -27,6 +29,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -213,12 +216,13 @@ fun JobTreadAssistantScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(16.dp),
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text("How can I help?", style = MaterialTheme.typography.headlineSmall)
             Text(
-                text = "Speak one request and I will parse it into a strict create_todo result, resolve the active JobTread organization, match any assignee or job references, and only send the create call when the request is fully safe.",
+                text = "Speak one request or load a demo sample. I will parse it into a strict create_todo result, resolve JobTread context, and only send the create call when the request is fully safe.",
                 style = MaterialTheme.typography.bodyLarge
             )
 
@@ -228,11 +232,25 @@ fun JobTreadAssistantScreen(
                 settings = state.settings,
                 onOpenSettings = onOpenSettings
             )
+            DemoModeCard(
+                demoModeEnabled = state.demoModeEnabled,
+                activeDemoScenarioId = state.activeDemoScenarioId,
+                activeDemoScenarioTitle = state.activeDemoScenarioTitle,
+                onSetDemoModeEnabled = viewModel::setDemoModeEnabled,
+                onLoadScenario = viewModel::loadDemoScenario
+            )
+            AssistantFlowCard(state)
 
             when (state.stage) {
                 JobTreadAssistantStage.IDLE -> {
                     Button(onClick = viewModel::startCapture, modifier = Modifier.fillMaxWidth()) {
-                        Text("Start Speaking")
+                        Text(
+                            if (state.demoModeEnabled) {
+                                "Start Live Voice Capture"
+                            } else {
+                                "Start Speaking"
+                            }
+                        )
                     }
                 }
 
@@ -286,9 +304,13 @@ fun JobTreadAssistantScreen(
                 )
                 JobTreadLookupCard(
                     state = state,
-                    onOpenSettings = onOpenSettings
+                    onOpenSettings = onOpenSettings,
+                    onSelectOrganization = viewModel::onSelectOrganization
                 )
-                CreateStatusCard(state)
+                CreateStatusCard(
+                    state = state,
+                    onStartNewRequest = viewModel::startCapture
+                )
                 Text(
                     text = readinessLabel(state),
                     style = MaterialTheme.typography.bodyMedium,
@@ -322,14 +344,7 @@ fun JobTreadAssistantScreen(
                         color = MaterialTheme.colorScheme.error
                     )
                 }
-                if (state.createStage == JobTreadCreateStage.SUCCESS) {
-                    Button(
-                        onClick = viewModel::startCapture,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Start New Request")
-                    }
-                } else {
+                if (state.createStage != JobTreadCreateStage.SUCCESS) {
                     TextButton(
                         onClick = viewModel::startCapture,
                         modifier = Modifier.fillMaxWidth()
@@ -347,6 +362,124 @@ fun JobTreadAssistantScreen(
                     Text("Grant Microphone Permission")
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun DemoModeCard(
+    demoModeEnabled: Boolean,
+    activeDemoScenarioId: String?,
+    activeDemoScenarioTitle: String?,
+    onSetDemoModeEnabled: (Boolean) -> Unit,
+    onLoadScenario: (JobTreadAssistantDemoScenario) -> Unit
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text("Demo Mode", style = MaterialTheme.typography.titleMedium)
+            Text(
+                if (demoModeEnabled) {
+                    "Demo mode is enabled. Load a canned scenario to show the parser, lookup, ready, success, or retryable error states without relying on live speech or live API behavior."
+                } else {
+                    "Enable demo mode to load canned assistant scenarios for a smooth walkthrough."
+                }
+            )
+            ParsedField(
+                "Mode",
+                if (demoModeEnabled) "Demo enabled" else "Live-only"
+            )
+            ParsedField(
+                "Loaded Sample",
+                activeDemoScenarioTitle ?: "None"
+            )
+            if (demoModeEnabled) {
+                Button(
+                    onClick = { onSetDemoModeEnabled(false) },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Turn Demo Mode Off")
+                }
+                jobTreadAssistantDemoScenarios.forEach { scenario ->
+                    val isSelected = scenario.id == activeDemoScenarioId
+                    val buttonText = if (isSelected) {
+                        "Loaded: ${scenario.title}"
+                    } else {
+                        scenario.title
+                    }
+                    val onClick = { onLoadScenario(scenario) }
+                    if (isSelected) {
+                        Button(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+                            Text(buttonText)
+                        }
+                    } else {
+                        OutlinedButton(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+                            Text(buttonText)
+                        }
+                    }
+                    Text(
+                        scenario.description,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            } else {
+                Button(
+                    onClick = { onSetDemoModeEnabled(true) },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Turn Demo Mode On")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AssistantFlowCard(state: JobTreadAssistantUiState) {
+    val steps = buildAssistantFlowSteps(state)
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text("Assistant Flow", style = MaterialTheme.typography.titleMedium)
+            Text(
+                text = if (state.activeDemoScenarioTitle != null) {
+                    "Showing demo scenario: ${state.activeDemoScenarioTitle}"
+                } else {
+                    "This card tracks the live or demo assistant state from prompt through create."
+                },
+                style = MaterialTheme.typography.bodyMedium
+            )
+            steps.forEach { step ->
+                AssistantFlowStepRow(step)
+            }
+        }
+    }
+}
+
+@Composable
+private fun AssistantFlowStepRow(step: AssistantFlowStep) {
+    val statusColor = when (step.status) {
+        "Blocked",
+        "Retry" -> MaterialTheme.colorScheme.error
+
+        "Success" -> MaterialTheme.colorScheme.primary
+        "Current" -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(step.label, style = MaterialTheme.typography.titleSmall)
+            Text(step.status, color = statusColor, style = MaterialTheme.typography.labelLarge)
+            Text(step.detail, style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -401,7 +534,8 @@ private fun ConfigurationStatusCard(
 @Composable
 private fun JobTreadLookupCard(
     state: JobTreadAssistantUiState,
-    onOpenSettings: () -> Unit
+    onOpenSettings: () -> Unit,
+    onSelectOrganization: (JobTreadOrganization) -> Unit
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -442,9 +576,17 @@ private fun JobTreadLookupCard(
                         "Accessible Organizations",
                         state.availableOrganizations.joinToString(" | ") { it.name }
                     )
+                    state.availableOrganizations.forEach { organization ->
+                        OutlinedButton(
+                            onClick = { onSelectOrganization(organization) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Use ${organization.name}")
+                        }
+                    }
                 }
                 TextButton(onClick = onOpenSettings, modifier = Modifier.fillMaxWidth()) {
-                    Text("Choose Default Organization")
+                    Text("Manage Default In Settings")
                 }
             } else {
                 state.lookupSummary?.let { summary ->
@@ -477,48 +619,96 @@ private fun JobTreadLookupCard(
 }
 
 @Composable
-private fun CreateStatusCard(state: JobTreadAssistantUiState) {
+private fun CreateStatusCard(
+    state: JobTreadAssistantUiState,
+    onStartNewRequest: () -> Unit
+) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            val isDemoCreate = state.activeDemoScenarioId != null
+
             ParsedField(
                 "Selected Organization",
                 state.activeOrganization?.name ?: "Not resolved yet"
             )
+            ParsedField(
+                "Send Mode",
+                if (isDemoCreate) "Demo mode sample" else "Live JobTread create"
+            )
 
             when (state.createStage) {
                 JobTreadCreateStage.IDLE -> {
-                    Text("Prepared for create", style = MaterialTheme.typography.titleMedium)
-                    Text("Nothing has been sent to JobTread yet. Confirm only after the parsed fields, organization, and lookup matches look correct.")
+                    Text(
+                        text = if (isDemoCreate) "Demo ready" else "Ready to create",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Text(
+                        if (isDemoCreate) {
+                            "No live JobTread request has been sent. Use confirm to replay the demo outcome for this sample."
+                        } else {
+                            "Nothing has been sent to JobTread yet. Confirm only after the parsed fields, organization, and lookup matches look correct."
+                        }
+                    )
                 }
 
                 JobTreadCreateStage.SENDING -> {
                     CircularProgressIndicator()
-                    Text("Creating in JobTread", style = MaterialTheme.typography.titleMedium)
-                    Text("Sending the resolved To-Do request to JobTread now.")
+                    Text(
+                        text = if (isDemoCreate) "Running demo create" else "Creating in JobTread",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Text(
+                        if (isDemoCreate) {
+                            "Simulating the final create step for the selected demo scenario."
+                        } else {
+                            "Sending the resolved To-Do request to JobTread now."
+                        }
+                    )
                 }
 
                 JobTreadCreateStage.SUCCESS -> {
                     val createdTodo = state.createdTodo
-                    Text("Created in JobTread", style = MaterialTheme.typography.titleMedium)
-                    Text("This request was sent successfully.")
+                    Text(
+                        text = if (isDemoCreate) "Demo success" else "To-Do created",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Text(
+                        if (isDemoCreate) {
+                            "This is a demo success state. No live JobTread mutation was sent."
+                        } else {
+                            "This request was sent successfully."
+                        }
+                    )
                     if (createdTodo != null) {
                         CreatedTodoDetails(
                             createdTodo = createdTodo,
                             activeOrganization = state.activeOrganization
                         )
                     }
+                    Button(onClick = onStartNewRequest, modifier = Modifier.fillMaxWidth()) {
+                        Text("Start New Request")
+                    }
                 }
 
                 JobTreadCreateStage.ERROR -> {
-                    Text("Create failed", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        text = if (isDemoCreate) "Demo create failed" else "Create failed",
+                        style = MaterialTheme.typography.titleMedium
+                    )
                     Text(
                         text = state.createErrorMessage ?: "JobTread did not accept the create request.",
                         color = MaterialTheme.colorScheme.error
                     )
-                    Text("The transcript, parsed fields, and lookup results were kept so you can retry safely.")
+                    Text(
+                        if (isDemoCreate) {
+                            "The demo keeps the transcript, parsed fields, and lookup results in place so you can replay or switch scenarios."
+                        } else {
+                            "The transcript, parsed fields, and lookup results were kept so you can retry safely."
+                        }
+                    )
                 }
             }
         }
@@ -600,6 +790,142 @@ private fun ParsedField(
     }
 }
 
+private data class AssistantFlowStep(
+    val label: String,
+    val status: String,
+    val detail: String
+)
+
+private fun buildAssistantFlowSteps(state: JobTreadAssistantUiState): List<AssistantFlowStep> {
+    val hasTranscript = state.transcript.isNotBlank()
+    val hasParsedIntent = state.parsedIntent != null
+    val parsedTitle = state.parsedIntent?.todo?.title
+    val lookupBlocked = state.lookupStage == JobTreadLookupStage.ERROR || state.organizationSelectionMessage != null
+    val lookupDone = state.lookupSummary != null || (state.activeOrganization != null && !lookupBlocked)
+    val isSendAttempted = state.createStage == JobTreadCreateStage.SENDING ||
+        state.createStage == JobTreadCreateStage.SUCCESS ||
+        state.createStage == JobTreadCreateStage.ERROR
+
+    return listOf(
+        AssistantFlowStep(
+            label = "Ready / How can I help?",
+            status = if (
+                state.stage == JobTreadAssistantStage.IDLE &&
+                !hasTranscript &&
+                !hasParsedIntent
+            ) {
+                "Current"
+            } else {
+                "Done"
+            },
+            detail = if (state.demoModeEnabled) {
+                "Push to talk for live capture or load a demo sample."
+            } else {
+                "Push to talk starts the one-turn JobTread assistant flow."
+            }
+        ),
+        AssistantFlowStep(
+            label = "Listening",
+            status = when (state.stage) {
+                JobTreadAssistantStage.PROMPTING,
+                JobTreadAssistantStage.LISTENING -> "Current"
+
+                JobTreadAssistantStage.RESULT,
+                JobTreadAssistantStage.ERROR -> if (hasTranscript) "Done" else "Waiting"
+
+                JobTreadAssistantStage.IDLE -> "Waiting"
+            },
+            detail = when (state.stage) {
+                JobTreadAssistantStage.PROMPTING -> "Prompting the user before capture begins."
+                JobTreadAssistantStage.LISTENING -> "Capturing one utterance."
+                else -> "Waiting for a live capture attempt."
+            }
+        ),
+        AssistantFlowStep(
+            label = "Transcript captured",
+            status = when {
+                hasTranscript -> "Done"
+                state.stage == JobTreadAssistantStage.ERROR -> "Blocked"
+                else -> "Waiting"
+            },
+            detail = if (hasTranscript) {
+                state.transcript
+            } else {
+                "No transcript is available yet."
+            }
+        ),
+        AssistantFlowStep(
+            label = "Parsed To-Do",
+            status = when {
+                hasParsedIntent -> "Done"
+                hasTranscript && state.errorMessage != null -> "Blocked"
+                else -> "Waiting"
+            },
+            detail = when {
+                parsedTitle != null -> "Title: $parsedTitle"
+                hasTranscript && state.errorMessage != null -> state.errorMessage
+                else -> "The assistant will convert the transcript into the strict create_todo model."
+            }
+        ),
+        AssistantFlowStep(
+            label = "Lookup resolution",
+            status = when {
+                state.lookupStage == JobTreadLookupStage.LOADING -> "Current"
+                lookupBlocked -> "Blocked"
+                lookupDone && hasParsedIntent -> "Done"
+                hasParsedIntent -> "Waiting"
+                else -> "Waiting"
+            },
+            detail = when {
+                state.organizationSelectionMessage != null -> state.organizationSelectionMessage
+                state.lookupErrorMessage != null -> state.lookupErrorMessage
+                state.lookupStage == JobTreadLookupStage.LOADING -> "Resolving organization, assignee, and job matches."
+                state.lookupSummary != null -> readinessLabel(state)
+                else -> "Lookup starts after parsing when JobTread is configured."
+            }
+        ),
+        AssistantFlowStep(
+            label = "Ready to create",
+            status = when {
+                hasParsedIntent && state.createReadiness == JobTreadCreateReadiness.READY && state.createStage == JobTreadCreateStage.IDLE -> "Current"
+                state.createStage == JobTreadCreateStage.SENDING || state.createStage == JobTreadCreateStage.SUCCESS -> "Done"
+                hasParsedIntent && state.createReadiness != JobTreadCreateReadiness.READY -> "Blocked"
+                else -> "Waiting"
+            },
+            detail = readinessLabel(state)
+        ),
+        AssistantFlowStep(
+            label = "Sending",
+            status = when (state.createStage) {
+                JobTreadCreateStage.SENDING -> "Current"
+                JobTreadCreateStage.SUCCESS,
+                JobTreadCreateStage.ERROR -> "Done"
+                JobTreadCreateStage.IDLE -> "Waiting"
+            },
+            detail = if (state.activeDemoScenarioId != null) {
+                "Demo mode can simulate the final create outcome."
+            } else {
+                "A live create is only sent after all safety checks pass."
+            }
+        ),
+        AssistantFlowStep(
+            label = "Success / retryable error",
+            status = when (state.createStage) {
+                JobTreadCreateStage.SUCCESS -> "Success"
+                JobTreadCreateStage.ERROR -> if (isSendAttempted) "Retry" else "Blocked"
+                JobTreadCreateStage.IDLE,
+                JobTreadCreateStage.SENDING -> "Waiting"
+            },
+            detail = when (state.createStage) {
+                JobTreadCreateStage.SUCCESS -> "The final result is on screen below."
+                JobTreadCreateStage.ERROR -> state.createErrorMessage ?: state.errorMessage ?: "The last attempt can be retried safely."
+                JobTreadCreateStage.SENDING -> "Waiting for the create response."
+                JobTreadCreateStage.IDLE -> "No create attempt has been made yet."
+            }
+        )
+    )
+}
+
 private fun idleLookupMessage(state: JobTreadAssistantUiState): String {
     return when {
         !state.settings.hasJobTreadConfig -> "JobTread lookup is unavailable until the Pave URL and grant key are saved."
@@ -624,11 +950,12 @@ private fun readinessLabel(state: JobTreadAssistantUiState): String {
 }
 
 private fun confirmButtonLabel(state: JobTreadAssistantUiState): String {
+    val isDemoCreate = state.activeDemoScenarioId != null
     return when (state.createStage) {
-        JobTreadCreateStage.ERROR -> "Retry Create To-Do"
-        JobTreadCreateStage.SENDING -> "Creating To-Do..."
-        JobTreadCreateStage.SUCCESS -> "Created"
-        JobTreadCreateStage.IDLE -> "Create JobTread To-Do"
+        JobTreadCreateStage.ERROR -> if (isDemoCreate) "Retry Demo Create" else "Retry Create To-Do"
+        JobTreadCreateStage.SENDING -> if (isDemoCreate) "Running Demo..." else "Creating To-Do..."
+        JobTreadCreateStage.SUCCESS -> if (isDemoCreate) "Demo Complete" else "Created"
+        JobTreadCreateStage.IDLE -> if (isDemoCreate) "Run Demo Create" else "Create JobTread To-Do"
     }
 }
 

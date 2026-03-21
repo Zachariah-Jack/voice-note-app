@@ -11,6 +11,7 @@ import com.example.voicenoteapp.jobtread.JobTreadCreateReadiness
 import com.example.voicenoteapp.jobtread.JobTreadCreatedTodo
 import com.example.voicenoteapp.jobtread.JobTreadLookupLoadResult
 import com.example.voicenoteapp.jobtread.JobTreadLookupRepository
+import com.example.voicenoteapp.jobtread.JobTreadLookupResolution
 import com.example.voicenoteapp.jobtread.JobTreadLookupSnapshot
 import com.example.voicenoteapp.jobtread.JobTreadOrganization
 import com.example.voicenoteapp.jobtread.JobTreadResolutionSummary
@@ -21,6 +22,7 @@ import com.example.voicenoteapp.jobtread.toJobTreadTodoCreateInput
 import com.example.voicenoteapp.settings.AssistantSettings
 import com.example.voicenoteapp.settings.CredentialStore
 import com.example.voicenoteapp.voice.SpeechParsing
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -66,6 +68,10 @@ data class JobTreadAssistantUiState(
     val createStage: JobTreadCreateStage = JobTreadCreateStage.IDLE,
     val createErrorMessage: String? = null,
     val createdTodo: JobTreadCreatedTodo? = null,
+    val demoModeEnabled: Boolean = false,
+    val activeDemoScenarioId: String? = null,
+    val activeDemoScenarioTitle: String? = null,
+    val activeDemoCreateOutcome: JobTreadAssistantDemoCreateOutcome = JobTreadAssistantDemoCreateOutcome.NONE,
     val captureNonce: Int = 0
 ) {
     val createReadiness: JobTreadCreateReadiness
@@ -117,6 +123,56 @@ class JobTreadAssistantViewModel(
         }
     }
 
+    fun setDemoModeEnabled(enabled: Boolean) {
+        val current = _uiState.value
+        if (!enabled && current.activeDemoScenarioId != null) {
+            _uiState.value = JobTreadAssistantUiState(
+                parserMode = current.parserMode,
+                parserLabel = current.parserLabel,
+                settings = current.settings,
+                demoModeEnabled = false
+            )
+            return
+        }
+
+        _uiState.update {
+            it.copy(
+                demoModeEnabled = enabled,
+                activeDemoScenarioId = if (enabled) it.activeDemoScenarioId else null,
+                activeDemoScenarioTitle = if (enabled) it.activeDemoScenarioTitle else null,
+                activeDemoCreateOutcome = if (enabled) {
+                    it.activeDemoCreateOutcome
+                } else {
+                    JobTreadAssistantDemoCreateOutcome.NONE
+                }
+            )
+        }
+    }
+
+    fun loadDemoScenario(scenario: JobTreadAssistantDemoScenario) {
+        _uiState.update {
+            it.copy(
+                stage = JobTreadAssistantStage.RESULT,
+                transcript = scenario.transcript,
+                parsedIntent = scenario.parsedIntent,
+                errorMessage = null,
+                lookupStage = JobTreadLookupStage.READY,
+                lookupSummary = scenario.lookupSummary,
+                lookupErrorMessage = null,
+                activeOrganization = scenario.activeOrganization,
+                availableOrganizations = listOf(scenario.activeOrganization),
+                organizationSelectionMessage = null,
+                createStage = JobTreadCreateStage.IDLE,
+                createErrorMessage = null,
+                createdTodo = null,
+                demoModeEnabled = true,
+                activeDemoScenarioId = scenario.id,
+                activeDemoScenarioTitle = scenario.title,
+                activeDemoCreateOutcome = scenario.createOutcome
+            )
+        }
+    }
+
     fun startCapture() {
         _uiState.value = _uiState.value.copy(
             stage = JobTreadAssistantStage.PROMPTING,
@@ -132,6 +188,9 @@ class JobTreadAssistantViewModel(
             createStage = JobTreadCreateStage.IDLE,
             createErrorMessage = null,
             createdTodo = null,
+            activeDemoScenarioId = null,
+            activeDemoScenarioTitle = null,
+            activeDemoCreateOutcome = JobTreadAssistantDemoCreateOutcome.NONE,
             captureNonce = _uiState.value.captureNonce + 1
         )
     }
@@ -163,7 +222,10 @@ class JobTreadAssistantViewModel(
             organizationSelectionMessage = null,
             createStage = JobTreadCreateStage.IDLE,
             createErrorMessage = null,
-            createdTodo = null
+            createdTodo = null,
+            activeDemoScenarioId = null,
+            activeDemoScenarioTitle = null,
+            activeDemoCreateOutcome = JobTreadAssistantDemoCreateOutcome.NONE
         )
 
         viewModelScope.launch {
@@ -222,7 +284,10 @@ class JobTreadAssistantViewModel(
             organizationSelectionMessage = null,
             createStage = JobTreadCreateStage.IDLE,
             createErrorMessage = null,
-            createdTodo = null
+            createdTodo = null,
+            activeDemoScenarioId = null,
+            activeDemoScenarioTitle = null,
+            activeDemoCreateOutcome = JobTreadAssistantDemoCreateOutcome.NONE
         )
     }
 
@@ -240,8 +305,31 @@ class JobTreadAssistantViewModel(
             organizationSelectionMessage = null,
             createStage = JobTreadCreateStage.IDLE,
             createErrorMessage = null,
-            createdTodo = null
+            createdTodo = null,
+            activeDemoScenarioId = null,
+            activeDemoScenarioTitle = null,
+            activeDemoCreateOutcome = JobTreadAssistantDemoCreateOutcome.NONE
         )
+    }
+
+    fun onSelectOrganization(organization: JobTreadOrganization) {
+        val parsedIntent = _uiState.value.parsedIntent ?: return
+        viewModelScope.launch {
+            saveSelectedOrganization(organization)
+            _uiState.update {
+                it.copy(
+                    lookupStage = JobTreadLookupStage.LOADING,
+                    lookupSummary = null,
+                    lookupErrorMessage = null,
+                    activeOrganization = organization,
+                    organizationSelectionMessage = null,
+                    createStage = JobTreadCreateStage.IDLE,
+                    createErrorMessage = null,
+                    createdTodo = null
+                )
+            }
+            resolveLookups(parsedIntent)
+        }
     }
 
     fun onConfirmCreate() {
@@ -268,6 +356,11 @@ class JobTreadAssistantViewModel(
                     }
                 )
             }
+            return
+        }
+
+        if (state.activeDemoScenarioId != null) {
+            runDemoCreate(parsedIntent, state)
             return
         }
 
@@ -325,6 +418,45 @@ class JobTreadAssistantViewModel(
         }
     }
 
+    private fun runDemoCreate(
+        parsedIntent: CreateTodoIntent,
+        state: JobTreadAssistantUiState
+    ) {
+        _uiState.update {
+            it.copy(
+                createStage = JobTreadCreateStage.SENDING,
+                createErrorMessage = null,
+                createdTodo = null
+            )
+        }
+
+        viewModelScope.launch {
+            delay(850)
+            when (state.activeDemoCreateOutcome) {
+                JobTreadAssistantDemoCreateOutcome.ERROR -> {
+                    _uiState.update {
+                        it.copy(
+                            createStage = JobTreadCreateStage.ERROR,
+                            createErrorMessage = "Demo mode: simulated JobTread rejection. Retry to replay the error state.",
+                            createdTodo = null
+                        )
+                    }
+                }
+
+                JobTreadAssistantDemoCreateOutcome.SUCCESS,
+                JobTreadAssistantDemoCreateOutcome.NONE -> {
+                    _uiState.update {
+                        it.copy(
+                            createStage = JobTreadCreateStage.SUCCESS,
+                            createErrorMessage = null,
+                            createdTodo = buildDemoCreatedTodo(parsedIntent, it)
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     private suspend fun resolveLookups(intent: CreateTodoIntent) {
         if (!currentSettings.hasJobTreadConfig) {
             return
@@ -345,7 +477,7 @@ class JobTreadAssistantViewModel(
             is JobTreadLookupLoadResult.Success -> {
                 applyLookupSuccess(intent, result.snapshot)
                 if (result.shouldPersistSelection) {
-                    persistSelectedOrganization(result.snapshot.organization)
+                    saveSelectedOrganization(result.snapshot.organization)
                 }
             }
 
@@ -406,23 +538,43 @@ class JobTreadAssistantViewModel(
         }
     }
 
-    private fun persistSelectedOrganization(organization: JobTreadOrganization) {
-        viewModelScope.launch {
-            val latestSettings = currentSettings
-            if (
-                latestSettings.jobTreadOrganizationId == organization.id &&
-                latestSettings.jobTreadOrganizationName == organization.name
-            ) {
-                return@launch
-            }
+    private suspend fun saveSelectedOrganization(
+        organization: JobTreadOrganization
+    ) {
+        val updatedSettings = currentSettings.copy(
+            jobTreadOrganizationId = organization.id,
+            jobTreadOrganizationName = organization.name
+        )
 
-            credentialStore.save(
-                latestSettings.copy(
-                    jobTreadOrganizationId = organization.id,
-                    jobTreadOrganizationName = organization.name
-                )
-            )
+        if (
+            currentSettings.jobTreadOrganizationId == updatedSettings.jobTreadOrganizationId &&
+            currentSettings.jobTreadOrganizationName == updatedSettings.jobTreadOrganizationName
+        ) {
+            return
         }
+
+        currentSettings = updatedSettings
+        credentialStore.save(updatedSettings)
+    }
+
+    private fun buildDemoCreatedTodo(
+        parsedIntent: CreateTodoIntent,
+        state: JobTreadAssistantUiState
+    ): JobTreadCreatedTodo {
+        val resolvedJob = when (val jobResolution = state.lookupSummary?.jobResolution) {
+            is JobTreadLookupResolution.Resolved -> jobResolution.match
+            else -> null
+        }
+
+        return JobTreadCreatedTodo(
+            id = "DEMO-${(parsedIntent.todo.title ?: "TODO").uppercase().filter { it.isLetterOrDigit() }.take(8)}",
+            name = parsedIntent.todo.title ?: "Demo To-Do",
+            description = parsedIntent.todo.description,
+            isToDo = true,
+            targetType = resolvedJob?.let { "job" },
+            dueDateIso = parsedIntent.todo.dueDateIso,
+            dueTimeLocal = parsedIntent.todo.dueTimeLocal
+        )
     }
 
     private fun applyParserResult(
