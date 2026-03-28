@@ -5,6 +5,7 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class WizardAppState(
     val drafts: List<WizardDraft> = emptyList(),
+    val jobTreadOrganizationSelection: JobTreadOrganizationSelectionState = JobTreadOrganizationSelectionState(),
     val session: SessionState = SessionState(),
 ) {
     fun findDraft(draftId: String): WizardDraft =

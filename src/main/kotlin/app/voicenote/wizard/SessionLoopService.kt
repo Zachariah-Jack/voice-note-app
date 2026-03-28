@@ -90,6 +90,38 @@ class SessionLoopService(
     }
 
     @Synchronized
+    fun refreshJobTreadOrganizations(): JobTreadOrganizationSelectionState {
+        val state = store.load()
+        val refreshedSelection = try {
+            jobTreadLookupRepository?.refreshOrganizationSelection(state.jobTreadOrganizationSelection)
+                ?: state.jobTreadOrganizationSelection.copy(
+                    status = JobTreadOrganizationSelectionStatus.MISSING_CONFIGURATION,
+                    failureMessage = "JobTread lookup repository is not configured.",
+                    updatedAtEpochMillis = clock.nowEpochMillis(),
+                )
+        } catch (exception: Exception) {
+            state.jobTreadOrganizationSelection.copy(
+                status = JobTreadOrganizationSelectionStatus.FAILURE,
+                failureMessage = exception.message ?: exception::class.java.simpleName,
+                updatedAtEpochMillis = clock.nowEpochMillis(),
+            )
+        }
+        store.save(state.copy(jobTreadOrganizationSelection = refreshedSelection))
+        return refreshedSelection
+    }
+
+    @Synchronized
+    fun saveDefaultJobTreadOrganization(organizationId: String): JobTreadOrganizationSelectionState {
+        val state = store.load()
+        val updatedSelection = state.jobTreadOrganizationSelection.saveDefaultOrganization(
+            organizationId = organizationId,
+            updatedAtEpochMillis = clock.nowEpochMillis(),
+        )
+        store.save(state.copy(jobTreadOrganizationSelection = updatedSelection))
+        return updatedSelection
+    }
+
+    @Synchronized
     fun submitUserTurn(text: String): SessionSnapshot {
         val normalizedText = text.trim()
         require(normalizedText.isNotEmpty()) { "User turn text must not be blank." }
@@ -319,30 +351,48 @@ class SessionLoopService(
         val normalizedReference = requestedReferenceText?.trim().takeUnless { it.isNullOrEmpty() }
             ?: return state
 
-        val lookupState = try {
-            jobTreadLookupRepository?.resolveJobReference(normalizedReference)
-                ?: JobTreadLookupState(
+        val lookupExecution = try {
+            jobTreadLookupRepository?.resolveJobReference(
+                referenceText = normalizedReference,
+                currentSelection = state.jobTreadOrganizationSelection,
+            ) ?: JobTreadLookupExecution(
+                organizationSelection = state.jobTreadOrganizationSelection.copy(
+                    status = JobTreadOrganizationSelectionStatus.MISSING_CONFIGURATION,
+                    failureMessage = "JobTread lookup repository is not configured.",
+                    updatedAtEpochMillis = clock.nowEpochMillis(),
+                ),
+                lookupState = JobTreadLookupState(
                     requestedReferenceText = normalizedReference,
                     snapshotStatus = JobTreadSnapshotStatus.CONFIG_MISSING,
                     resolutionStatus = JobTreadResolutionStatus.UNRESOLVED,
                     failureMessage = "JobTread lookup repository is not configured.",
                     updatedAtEpochMillis = clock.nowEpochMillis(),
-                )
+                ),
+            )
         } catch (exception: Exception) {
-            JobTreadLookupState(
-                requestedReferenceText = normalizedReference,
-                snapshotStatus = JobTreadSnapshotStatus.FAILED,
-                resolutionStatus = JobTreadResolutionStatus.UNRESOLVED,
-                failureMessage = exception.message ?: exception::class.java.simpleName,
-                updatedAtEpochMillis = clock.nowEpochMillis(),
+            JobTreadLookupExecution(
+                organizationSelection = state.jobTreadOrganizationSelection.copy(
+                    status = JobTreadOrganizationSelectionStatus.FAILURE,
+                    failureMessage = exception.message ?: exception::class.java.simpleName,
+                    updatedAtEpochMillis = clock.nowEpochMillis(),
+                ),
+                lookupState = JobTreadLookupState(
+                    requestedReferenceText = normalizedReference,
+                    snapshotStatus = JobTreadSnapshotStatus.FAILED,
+                    resolutionStatus = JobTreadResolutionStatus.UNRESOLVED,
+                    failureMessage = exception.message ?: exception::class.java.simpleName,
+                    updatedAtEpochMillis = clock.nowEpochMillis(),
+                ),
             )
         }
 
         val updatedDraft = draft.copy(
-            jobTreadLookup = lookupState,
+            jobTreadLookup = lookupExecution.lookupState,
             updatedAtEpochMillis = clock.nowEpochMillis(),
         )
-        val updatedState = state.upsertDraft(updatedDraft)
+        val updatedState = state
+            .upsertDraft(updatedDraft)
+            .copy(jobTreadOrganizationSelection = lookupExecution.organizationSelection)
         store.save(updatedState)
         return updatedState
     }

@@ -16,6 +16,7 @@ import app.voicenote.android.tts.AndroidTextToSpeechAssistantSpeaker
 import app.voicenote.wizard.DraftStatus
 import app.voicenote.wizard.HttpOpenAiResponsesTransport
 import app.voicenote.wizard.JobTreadLookupConfig
+import app.voicenote.wizard.JobTreadOrganizationSelectionState
 import app.voicenote.wizard.ReadOnlyJobTreadLookupRepository
 import app.voicenote.wizard.JsonFileAppStateStore
 import app.voicenote.wizard.OpenAiWizardClientConfig
@@ -42,6 +43,9 @@ class MainActivity : Activity() {
     private lateinit var assistantMessageTextView: TextView
     private lateinit var partialTranscriptTextView: TextView
     private lateinit var finalTranscriptTextView: TextView
+    private lateinit var jobTreadOrganizationTextView: TextView
+    private lateinit var refreshJobTreadOrganizationsButton: Button
+    private lateinit var jobTreadOrganizationOptionsContainer: LinearLayout
     private lateinit var jobTreadLookupTextView: TextView
     private lateinit var statusTextView: TextView
 
@@ -106,6 +110,9 @@ class MainActivity : Activity() {
         assistantMessageTextView = findViewById(R.id.assistantMessageTextView)
         partialTranscriptTextView = findViewById(R.id.partialTranscriptTextView)
         finalTranscriptTextView = findViewById(R.id.finalTranscriptTextView)
+        jobTreadOrganizationTextView = findViewById(R.id.jobTreadOrganizationTextView)
+        refreshJobTreadOrganizationsButton = findViewById(R.id.refreshJobTreadOrganizationsButton)
+        jobTreadOrganizationOptionsContainer = findViewById(R.id.jobTreadOrganizationOptionsContainer)
         jobTreadLookupTextView = findViewById(R.id.jobTreadLookupTextView)
         statusTextView = findViewById(R.id.statusTextView)
     }
@@ -154,6 +161,10 @@ class MainActivity : Activity() {
     private fun bindActions() {
         newSessionButton.setOnClickListener {
             startNewSessionFromInbox()
+        }
+
+        refreshJobTreadOrganizationsButton.setOnClickListener {
+            refreshJobTreadOrganizations()
         }
 
         startSessionButton.setOnClickListener {
@@ -246,6 +257,32 @@ class MainActivity : Activity() {
         renderState(store.load())
     }
 
+    private fun refreshJobTreadOrganizations() {
+        statusNotice = null
+        try {
+            sessionLoopService.refreshJobTreadOrganizations()
+        } catch (exception: Exception) {
+            statusNotice = getString(
+                R.string.start_session_failed,
+                exception.message ?: exception::class.java.simpleName,
+            )
+        }
+        renderState(store.load())
+    }
+
+    private fun saveDefaultJobTreadOrganization(organizationId: String) {
+        statusNotice = null
+        try {
+            sessionLoopService.saveDefaultJobTreadOrganization(organizationId)
+        } catch (exception: Exception) {
+            statusNotice = getString(
+                R.string.start_session_failed,
+                exception.message ?: exception::class.java.simpleName,
+            )
+        }
+        renderState(store.load())
+    }
+
     private fun releaseVoiceRuntime() {
         try {
             voiceTurnController.cancel()
@@ -273,6 +310,7 @@ class MainActivity : Activity() {
 
         renderActiveSession(inboxState)
         renderDraftList(inboxState, state)
+        renderJobTreadOrganizationSelection(state.jobTreadOrganizationSelection)
 
         assistantMessageTextView.text = state.displayAssistantMessage(draft)
         partialTranscriptTextView.text = state.session.speechRecognition.partialTranscript
@@ -285,6 +323,7 @@ class MainActivity : Activity() {
 
         val sessionBusy = state.session.phase in activeSessionPhases
         newSessionButton.isEnabled = !sessionBusy
+        refreshJobTreadOrganizationsButton.isEnabled = !sessionBusy
         startSessionButton.isEnabled = state.session.draftId != null && !sessionBusy
         stopSessionButton.isEnabled = state.session.draftId != null || state.session.phase != SessionPhase.IDLE
     }
@@ -352,6 +391,32 @@ class MainActivity : Activity() {
                     },
                 )
             }
+        }
+    }
+
+    private fun renderJobTreadOrganizationSelection(selection: JobTreadOrganizationSelectionState) {
+        jobTreadOrganizationTextView.text = selection.summaryText()
+        jobTreadOrganizationOptionsContainer.removeAllViews()
+
+        if (selection.organizations.size <= 1) {
+            return
+        }
+
+        selection.organizations.forEach { organization ->
+            jobTreadOrganizationOptionsContainer.addView(
+                Button(this).apply {
+                    val isDefault = organization.id == selection.defaultOrganizationId
+                    text = if (isDefault) {
+                        getString(R.string.saved_jobtread_default_organization, organization.name)
+                    } else {
+                        getString(R.string.save_jobtread_default_organization, organization.name)
+                    }
+                    isEnabled = !isDefault
+                    setOnClickListener {
+                        saveDefaultJobTreadOrganization(organization.id)
+                    }
+                },
+            )
         }
     }
 

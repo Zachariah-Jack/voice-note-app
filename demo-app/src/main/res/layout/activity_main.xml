@@ -133,6 +133,34 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
+            android:text="@string/jobtread_organization_label"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/jobTreadOrganizationTextView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/empty_jobtread_organization" />
+
+        <Button
+            android:id="@+id/refreshJobTreadOrganizationsButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/refresh_jobtread_organizations" />
+
+        <LinearLayout
+            android:id="@+id/jobTreadOrganizationOptionsContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="vertical" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
             android:text="@string/jobtread_lookup_label"
             android:textStyle="bold" />
 

@@ -207,39 +207,18 @@ class SessionLoopServiceTest {
     }
 
     @Test
-    fun `persisted recovery keeps the latest lookup state on the draft`() {
+    fun `persisted recovery keeps the saved organization selection`() {
         val stateFile = tempDir.resolve("app-state.json")
         val store = JsonFileAppStateStore(stateFile)
         val service = SessionLoopService(
             store = store,
-            wizardTurnClient = LookupRequestWizardTurnClient(
-                wizardMessage = "I found the right draft path.",
-                jobLookupQuery = "Garage Addition",
-            ),
+            wizardTurnClient = FakeWizardTurnClient(),
             jobTreadLookupRepository = FixedJobTreadLookupRepository(
-                JobTreadLookupState(
-                    requestedReferenceText = "Garage Addition",
-                    snapshotStatus = JobTreadSnapshotStatus.LOADED,
-                    resolutionStatus = JobTreadResolutionStatus.RESOLVED,
-                    snapshot = JobTreadLookupSnapshot(
-                        organization = JobTreadOrganization(
-                            id = "org-1",
-                            name = "Northwind Builders",
-                        ),
-                        jobs = listOf(
-                            JobTreadJobSummary(
-                                id = "job-1",
-                                name = "Garage Addition",
-                                customerName = "Sam Rivera",
-                                locationName = "55 Oak Avenue",
-                            ),
-                        ),
-                    ),
-                    resolvedJob = JobTreadJobSummary(
-                        id = "job-1",
-                        name = "Garage Addition",
-                        customerName = "Sam Rivera",
-                        locationName = "55 Oak Avenue",
+                refreshedSelection = JobTreadOrganizationSelectionState(
+                    status = JobTreadOrganizationSelectionStatus.SELECTION_REQUIRED,
+                    organizations = listOf(
+                        JobTreadOrganization(id = "org-1", name = "Northwind Builders"),
+                        JobTreadOrganization(id = "org-2", name = "Southwind Renovations"),
                     ),
                     updatedAtEpochMillis = 2_000L,
                 ),
@@ -248,23 +227,35 @@ class SessionLoopServiceTest {
             clock = StepClock(),
         )
 
-        val started = service.startNewSession()
-        service.submitUserTurn("Please update the garage addition note")
+        service.refreshJobTreadOrganizations()
+        service.saveDefaultJobTreadOrganization("org-2")
 
         val reloadedService = SessionLoopService(
             store = JsonFileAppStateStore(stateFile),
             wizardTurnClient = FakeWizardTurnClient(),
+            jobTreadLookupRepository = FixedJobTreadLookupRepository(
+                refreshedSelection = JobTreadOrganizationSelectionState(
+                    status = JobTreadOrganizationSelectionStatus.SELECTED_FROM_SAVED_DEFAULT,
+                    organizations = listOf(
+                        JobTreadOrganization(id = "org-1", name = "Northwind Builders"),
+                        JobTreadOrganization(id = "org-2", name = "Southwind Renovations"),
+                    ),
+                    selectedOrganizationId = "org-2",
+                    defaultOrganizationId = "org-2",
+                    updatedAtEpochMillis = 10_000L,
+                ),
+            ),
             idGenerator = SequentialIdGenerator(startAt = 20),
             clock = StepClock(startAt = 10_000L),
         )
-        val resumed = reloadedService.resumeMostRecentUnfinishedDraft()
-        val persistedDraft = JsonFileAppStateStore(stateFile).load().findDraft(started.draft.id)
+        val persistedSelection = JsonFileAppStateStore(stateFile).load().jobTreadOrganizationSelection
+        val refreshedSelection = reloadedService.refreshJobTreadOrganizations()
 
-        assertNotNull(resumed)
-        assertEquals(started.draft.id, resumed.draft.id)
-        assertEquals(JobTreadResolutionStatus.RESOLVED, persistedDraft.jobTreadLookup.resolutionStatus)
-        assertEquals("job-1", persistedDraft.jobTreadLookup.resolvedJob?.id)
-        assertEquals("Northwind Builders", persistedDraft.jobTreadLookup.snapshot.organization?.name)
+        assertEquals(JobTreadOrganizationSelectionStatus.SELECTED_FROM_SAVED_DEFAULT, persistedSelection.status)
+        assertEquals("org-2", persistedSelection.defaultOrganizationId)
+        assertEquals("org-2", persistedSelection.selectedOrganizationId)
+        assertEquals(JobTreadOrganizationSelectionStatus.SELECTED_FROM_SAVED_DEFAULT, refreshedSelection.status)
+        assertEquals("Southwind Renovations", refreshedSelection.selectedOrganization()?.name)
     }
 
     @Test
@@ -404,6 +395,50 @@ class SessionLoopServiceTest {
         assertEquals(JobTreadResolutionStatus.UNRESOLVED, persistedDraft.jobTreadLookup.resolutionStatus)
     }
 
+    @Test
+    fun `safe blocking behavior keeps session recoverable when organization selection is unresolved`() {
+        val stateFile = tempDir.resolve("app-state.json")
+        val store = JsonFileAppStateStore(stateFile)
+        val service = SessionLoopService(
+            store = store,
+            wizardTurnClient = LookupRequestWizardTurnClient(
+                wizardMessage = "I need the JobTread job before I can confirm details.",
+                jobLookupQuery = "Main Street remodel",
+            ),
+            jobTreadLookupRepository = FixedJobTreadLookupRepository(
+                execution = JobTreadLookupExecution(
+                    organizationSelection = JobTreadOrganizationSelectionState(
+                        status = JobTreadOrganizationSelectionStatus.SELECTION_REQUIRED,
+                        organizations = listOf(
+                            JobTreadOrganization(id = "org-1", name = "Northwind Builders"),
+                            JobTreadOrganization(id = "org-2", name = "Southwind Renovations"),
+                        ),
+                        updatedAtEpochMillis = 3_000L,
+                    ),
+                    lookupState = JobTreadLookupState(
+                        requestedReferenceText = "Main Street remodel",
+                        snapshotStatus = JobTreadSnapshotStatus.SELECTION_REQUIRED,
+                        resolutionStatus = JobTreadResolutionStatus.UNRESOLVED,
+                        failureMessage = "Select a JobTread organization before lookup can run.",
+                        updatedAtEpochMillis = 3_000L,
+                    ),
+                ),
+            ),
+            idGenerator = SequentialIdGenerator(),
+            clock = StepClock(),
+        )
+
+        val started = service.startNewSession()
+        val snapshot = service.submitUserTurn("Find the Main Street remodel")
+        val persistedState = JsonFileAppStateStore(stateFile).load()
+        val persistedDraft = persistedState.findDraft(started.draft.id)
+
+        assertEquals(SessionPhase.AWAITING_USER_TURN, snapshot.session.phase)
+        assertEquals(JobTreadSnapshotStatus.SELECTION_REQUIRED, persistedDraft.jobTreadLookup.snapshotStatus)
+        assertEquals(JobTreadOrganizationSelectionStatus.SELECTION_REQUIRED, persistedState.jobTreadOrganizationSelection.status)
+        assertEquals(listOf("org-1", "org-2"), persistedState.jobTreadOrganizationSelection.organizations.map(JobTreadOrganization::id))
+    }
+
     private class StepClock(
         private var startAt: Long = 1_000L,
         private val step: Long = 1_000L,
@@ -464,13 +499,33 @@ class SessionLoopServiceTest {
     }
 
     private class FixedJobTreadLookupRepository(
-        private val result: JobTreadLookupState,
+        private val refreshedSelection: JobTreadOrganizationSelectionState = JobTreadOrganizationSelectionState(),
+        private val execution: JobTreadLookupExecution = JobTreadLookupExecution(
+            organizationSelection = refreshedSelection,
+            lookupState = JobTreadLookupState(),
+        ),
     ) : JobTreadLookupRepository {
-        override fun resolveJobReference(referenceText: String?): JobTreadLookupState = result
+        override fun refreshOrganizationSelection(
+            currentSelection: JobTreadOrganizationSelectionState,
+        ): JobTreadOrganizationSelectionState = refreshedSelection
+
+        override fun resolveJobReference(
+            referenceText: String?,
+            currentSelection: JobTreadOrganizationSelectionState,
+        ): JobTreadLookupExecution = execution
     }
 
     private class ThrowingJobTreadLookupRepository : JobTreadLookupRepository {
-        override fun resolveJobReference(referenceText: String?): JobTreadLookupState {
+        override fun refreshOrganizationSelection(
+            currentSelection: JobTreadOrganizationSelectionState,
+        ): JobTreadOrganizationSelectionState {
+            error("Lookup service unavailable")
+        }
+
+        override fun resolveJobReference(
+            referenceText: String?,
+            currentSelection: JobTreadOrganizationSelectionState,
+        ): JobTreadLookupExecution {
             error("Lookup service unavailable")
         }
     }
