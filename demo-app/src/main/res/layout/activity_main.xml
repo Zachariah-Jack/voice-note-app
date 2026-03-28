@@ -9,11 +9,75 @@
         android:orientation="vertical"
         android:padding="16dp">
 
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/inbox_label"
+            android:textStyle="bold" />
+
+        <Button
+            android:id="@+id/newSessionButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/new_session" />
+
+        <LinearLayout
+            android:id="@+id/activeSessionContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/active_session_section_label"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/activeSessionTextView"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="@string/no_active_session" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/drafts_label"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/emptyDraftsTextView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/empty_drafts" />
+
+        <LinearLayout
+            android:id="@+id/draftListContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="vertical" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="@string/voice_session_label"
+            android:textStyle="bold" />
+
         <Button
             android:id="@+id/startSessionButton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="@string/start_session" />
+            android:layout_marginTop="8dp"
+            android:text="@string/resume_active_session" />
 
         <Button
             android:id="@+id/stopSessionButton"

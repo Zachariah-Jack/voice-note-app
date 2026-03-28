@@ -63,6 +63,8 @@ dependencies {
     implementation(project(":android-tts"))
     implementation(project(":android-speech"))
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+
+    testImplementation(kotlin("test"))
 }
 
 kotlin {

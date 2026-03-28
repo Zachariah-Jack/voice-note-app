@@ -1,7 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Voice Note Demo</string>
-    <string name="start_session">Start / Resume Session</string>
+    <string name="inbox_label">Draft inbox</string>
+    <string name="new_session">Start New Session</string>
+    <string name="active_session_section_label">Active or recoverable session</string>
+    <string name="drafts_label">Local drafts</string>
+    <string name="empty_drafts">No local drafts yet.</string>
+    <string name="voice_session_label">Voice session</string>
+    <string name="resume_active_session">Resume Active Session</string>
     <string name="stop_session">Stop / Cancel Session</string>
     <string name="assistant_message_label">Assistant message</string>
     <string name="partial_transcript_label">Partial user transcript</string>
@@ -13,7 +19,22 @@
     <string name="empty_committed_transcript">No committed transcript yet.</string>
     <string name="missing_openai_api_key">OPENAI_API_KEY is missing. Rebuild the demo app with the key in your environment.</string>
     <string name="record_audio_permission_denied">Microphone permission is required for the spoken turn demo.</string>
+    <string name="session_created_resume_when_ready">Session created. Resume the voice loop when microphone access is ready.</string>
+    <string name="draft_selected_resume_when_ready">Draft selected. Resume the voice loop when microphone access is ready.</string>
+    <string name="resume_draft">Resume Draft</string>
+    <string name="resume_draft_failed">That draft could not be resumed.</string>
+    <string name="resume_draft_failed_with_reason">Resume draft failed: %1$s</string>
+    <string name="no_active_session">No active session selected.</string>
     <string name="start_session_failed">Start session failed: %1$s</string>
+    <string name="active_session_label">Active session</string>
+    <string name="recoverable_paused_session_label">Recoverable paused session</string>
+    <string name="active_session_summary">%1$s • %2$s • %3$d turns</string>
+    <string name="active_session_snippet">Last: %1$s</string>
+    <string name="draft_updated_time">Updated %1$s</string>
+    <string name="draft_snippet">Last: %1$s</string>
+    <string name="draft_turn_count">%1$d turns</string>
+    <string name="draft_phase">Phase %1$s</string>
+    <string name="draft_active_marker">Active</string>
     <string name="status_phase">Phase: %1$s</string>
     <string name="status_assistant">Assistant speech: %1$s</string>
     <string name="status_assistant_error_code">Assistant speech error code: %1$d</string>

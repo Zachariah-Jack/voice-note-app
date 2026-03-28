@@ -109,6 +109,50 @@ class SessionLoopServiceTest {
     }
 
     @Test
+    fun `resume selected draft loads the requested unfinished draft`() {
+        val store = JsonFileAppStateStore(tempDir.resolve("app-state.json"))
+        store.save(
+            WizardAppState(
+                drafts = listOf(
+                    WizardDraft(
+                        id = "draft-first",
+                        createdAtEpochMillis = 1L,
+                        updatedAtEpochMillis = 10L,
+                    ),
+                    WizardDraft(
+                        id = "draft-selected",
+                        transcript = listOf(
+                            TranscriptTurn(
+                                id = "turn-1",
+                                speaker = TranscriptSpeaker.USER,
+                                text = "Resume me",
+                                createdAtEpochMillis = 20L,
+                            ),
+                        ),
+                        createdAtEpochMillis = 2L,
+                        updatedAtEpochMillis = 20L,
+                    ),
+                ),
+            ),
+        )
+        val service = SessionLoopService(
+            store = store,
+            wizardTurnClient = FakeWizardTurnClient(),
+            idGenerator = SequentialIdGenerator(),
+            clock = StepClock(startAt = 900L),
+        )
+
+        val snapshot = service.resumeDraft("draft-selected")
+        val persistedState = store.load()
+
+        assertNotNull(snapshot)
+        assertEquals("draft-selected", snapshot.draft.id)
+        assertEquals("draft-selected", persistedState.session.draftId)
+        assertEquals(SessionPhase.AWAITING_USER_TURN, persistedState.session.phase)
+        assertEquals(900L, persistedState.session.updatedAtEpochMillis)
+    }
+
+    @Test
     fun `fake turn application appends user and wizard turns deterministically`() {
         val store = JsonFileAppStateStore(tempDir.resolve("app-state.json"))
         val service = SessionLoopService(

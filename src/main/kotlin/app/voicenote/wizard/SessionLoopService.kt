@@ -45,6 +45,23 @@ class SessionLoopService(
             .maxByOrNull { it.updatedAtEpochMillis }
             ?: return null
 
+        return resumeDraft(existingState, draft)
+    }
+
+    @Synchronized
+    fun resumeDraft(draftId: String): SessionSnapshot? {
+        val existingState = store.load()
+        val draft = existingState.drafts
+            .firstOrNull { it.id == draftId && it.status == DraftStatus.IN_PROGRESS }
+            ?: return null
+
+        return resumeDraft(existingState, draft)
+    }
+
+    private fun resumeDraft(
+        existingState: WizardAppState,
+        draft: WizardDraft,
+    ): SessionSnapshot {
         val now = clock.nowEpochMillis()
         val resumedSession = SessionState(
             draftId = draft.id,
