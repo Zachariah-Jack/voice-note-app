@@ -14,6 +14,7 @@ import app.voicenote.wizard.HttpOpenAiResponsesTransport
 import app.voicenote.wizard.JsonFileAppStateStore
 import app.voicenote.wizard.OpenAiWizardClientConfig
 import app.voicenote.wizard.OpenAiWizardTurnClient
+import app.voicenote.wizard.SpeechRecognitionStatus
 import app.voicenote.wizard.SessionLoopService
 import app.voicenote.wizard.SessionPhase
 import app.voicenote.wizard.TranscriptSpeaker
@@ -155,7 +156,11 @@ class MainActivity : Activity() {
         pendingStartAfterPermission = false
         statusNotice = null
         try {
-            voiceTurnController.startSession(initialAssistantMessage)
+            if (shouldResumeSession()) {
+                voiceTurnController.resumeSession()
+            } else {
+                voiceTurnController.startSession(initialAssistantMessage)
+            }
         } catch (exception: Exception) {
             statusNotice = getString(
                 R.string.start_session_failed,
@@ -232,6 +237,17 @@ class MainActivity : Activity() {
             lines += getString(R.string.status_openai_not_configured)
         }
         return lines.joinToString(separator = "\n")
+    }
+
+    private fun shouldResumeSession(): Boolean {
+        val state = store.load()
+        val draft = state.displayDraft() ?: return false
+        return state.session.draftId == draft.id &&
+            state.session.phase == SessionPhase.AWAITING_USER_TURN &&
+            (
+                state.session.speechRecognition.status != SpeechRecognitionStatus.IDLE ||
+                    draft.transcript.isNotEmpty()
+                )
     }
 
     private fun hasRecordAudioPermission(): Boolean =

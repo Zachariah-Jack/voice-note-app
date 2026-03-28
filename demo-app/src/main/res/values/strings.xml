@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Voice Note Demo</string>
-    <string name="start_session">Start Session</string>
+    <string name="start_session">Start / Resume Session</string>
     <string name="stop_session">Stop / Cancel Session</string>
     <string name="assistant_message_label">Assistant message</string>
     <string name="partial_transcript_label">Partial user transcript</string>

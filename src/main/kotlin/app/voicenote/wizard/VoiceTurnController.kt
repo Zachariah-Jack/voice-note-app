@@ -11,7 +11,7 @@ class VoiceTurnController(
     private val turnExecutor: Executor = DirectExecutor,
 ) {
     private val lock = Any()
-    private var listenAfterAssistantCompletion = false
+    private var continuousLoopEnabled = false
 
     init {
         sessionLoopService.setAssistantSpeakerEventObserver { event ->
@@ -30,7 +30,7 @@ class VoiceTurnController(
 
     fun armNextVoiceTurn() {
         synchronized(lock) {
-            listenAfterAssistantCompletion = true
+            continuousLoopEnabled = true
         }
     }
 
@@ -40,9 +40,36 @@ class VoiceTurnController(
         return sessionLoopService.speakAssistantMessage(initialAssistantMessage)
     }
 
+    fun resumeSession(): SessionSnapshot? {
+        synchronized(lock) {
+            continuousLoopEnabled = true
+        }
+        val state = store.load()
+        val draftId = state.session.draftId ?: return null
+        val draft = state.findDraft(draftId)
+
+        when (state.session.phase) {
+            SessionPhase.SPEAKING_ASSISTANT,
+            SessionPhase.LISTENING_USER,
+            SessionPhase.RUNNING_WIZARD_TURN,
+            -> return SessionSnapshot(draft = draft, session = state.session)
+
+            SessionPhase.IDLE,
+            SessionPhase.AWAITING_USER_TURN,
+            -> {
+                startListeningCycle()
+                val updatedState = store.load()
+                return SessionSnapshot(
+                    draft = updatedState.findDraft(draftId),
+                    session = updatedState.session,
+                )
+            }
+        }
+    }
+
     fun stop() {
         synchronized(lock) {
-            listenAfterAssistantCompletion = false
+            continuousLoopEnabled = false
         }
         sessionLoopService.stopAssistantSpeech()
         speechRecognizerGateway.stopListening()
@@ -63,7 +90,7 @@ class VoiceTurnController(
 
     fun cancel() {
         synchronized(lock) {
-            listenAfterAssistantCompletion = false
+            continuousLoopEnabled = false
         }
         sessionLoopService.stopAssistantSpeech()
         speechRecognizerGateway.cancel()
@@ -84,7 +111,7 @@ class VoiceTurnController(
 
     fun release() {
         synchronized(lock) {
-            listenAfterAssistantCompletion = false
+            continuousLoopEnabled = false
         }
         sessionLoopService.setAssistantSpeakerEventObserver(null)
         speechRecognizerGateway.setEventListener(null)
@@ -108,89 +135,24 @@ class VoiceTurnController(
     }
 
     private fun handleAssistantSpeakerEvent(event: AssistantSpeakerEvent) {
-        val shouldStartListening = synchronized(lock) {
-            when (event.type) {
-                AssistantSpeakerEventType.DONE -> listenAfterAssistantCompletion
-                AssistantSpeakerEventType.ERROR,
-                AssistantSpeakerEventType.STOPPED,
-                -> {
-                    listenAfterAssistantCompletion = false
-                    false
-                }
-
-                AssistantSpeakerEventType.STARTED -> false
+        when (event.type) {
+            AssistantSpeakerEventType.STARTED -> Unit
+            AssistantSpeakerEventType.DONE -> if (isContinuousLoopEnabled()) {
+                startListeningCycle()
             }
-        }
-
-        if (!shouldStartListening) {
-            return
-        }
-
-        when (speechRecognizerGateway.checkAvailability()) {
-            SpeechRecognizerAvailability.AVAILABLE -> {
-                persistRecognitionState { session ->
-                    session.copy(
-                        phase = SessionPhase.LISTENING_USER,
-                        speechRecognition = SpeechRecognitionState(
-                            status = SpeechRecognitionStatus.LISTENING,
-                        ),
-                        updatedAtEpochMillis = clock.nowEpochMillis(),
-                    )
-                }
-                try {
-                    speechRecognizerGateway.startListening()
-                } catch (exception: Exception) {
-                    synchronized(lock) {
-                        listenAfterAssistantCompletion = false
-                    }
-                    persistRecognitionState { session ->
-                        session.copy(
-                            phase = SessionPhase.AWAITING_USER_TURN,
-                            speechRecognition = SpeechRecognitionState(
-                                status = SpeechRecognitionStatus.ERROR,
-                                errorType = SpeechRecognitionEventType.ERROR,
-                            ),
-                            updatedAtEpochMillis = clock.nowEpochMillis(),
-                        )
-                    }
-                }
-            }
-
-            SpeechRecognizerAvailability.PERMISSION_NEEDED -> {
-                synchronized(lock) {
-                    listenAfterAssistantCompletion = false
-                }
-                persistRecognitionState { session ->
-                    session.copy(
-                        phase = SessionPhase.AWAITING_USER_TURN,
-                        speechRecognition = SpeechRecognitionState(
-                            status = SpeechRecognitionStatus.PERMISSION_NEEDED,
-                            errorType = SpeechRecognitionEventType.PERMISSION_REQUIRED,
-                        ),
-                        updatedAtEpochMillis = clock.nowEpochMillis(),
-                    )
-                }
-            }
-
-            SpeechRecognizerAvailability.UNAVAILABLE -> {
-                synchronized(lock) {
-                    listenAfterAssistantCompletion = false
-                }
-                persistRecognitionState { session ->
-                    session.copy(
-                        phase = SessionPhase.AWAITING_USER_TURN,
-                        speechRecognition = SpeechRecognitionState(
-                            status = SpeechRecognitionStatus.ERROR,
-                            errorType = SpeechRecognitionEventType.ERROR,
-                        ),
-                        updatedAtEpochMillis = clock.nowEpochMillis(),
-                    )
-                }
+            AssistantSpeakerEventType.ERROR,
+            AssistantSpeakerEventType.STOPPED,
+            -> synchronized(lock) {
+                continuousLoopEnabled = false
             }
         }
     }
 
     private fun handleSpeechRecognitionEvent(event: SpeechRecognitionEvent) {
+        if (!shouldHandleRecognitionEvent(event.type)) {
+            return
+        }
+
         when (event.type) {
             SpeechRecognitionEventType.LISTENING_STARTED -> persistRecognitionState { session ->
                 session.copy(
@@ -218,9 +180,6 @@ class VoiceTurnController(
 
             SpeechRecognitionEventType.FINAL_TRANSCRIPT -> {
                 val transcript = event.transcript?.trim().takeUnless { it.isNullOrEmpty() } ?: return
-                synchronized(lock) {
-                    listenAfterAssistantCompletion = false
-                }
                 persistRecognitionState { session ->
                     session.copy(
                         phase = SessionPhase.LISTENING_USER,
@@ -235,29 +194,45 @@ class VoiceTurnController(
                     )
                 }
                 turnExecutor.execute {
-                    sessionLoopService.submitUserTurn(transcript)
+                    try {
+                        sessionLoopService.submitUserTurn(transcript)
+                    } catch (_: Exception) {
+                        synchronized(lock) {
+                            continuousLoopEnabled = false
+                        }
+                        persistRecognitionState { session ->
+                            session.copy(
+                                phase = SessionPhase.AWAITING_USER_TURN,
+                                speechRecognition = SpeechRecognitionState(
+                                    status = SpeechRecognitionStatus.ERROR,
+                                    errorType = SpeechRecognitionEventType.ERROR,
+                                ),
+                                updatedAtEpochMillis = clock.nowEpochMillis(),
+                            )
+                        }
+                    }
                 }
             }
 
-            SpeechRecognitionEventType.NO_MATCH -> finishRecognitionWithError(
+            SpeechRecognitionEventType.NO_MATCH -> recoverRecognitionCycle(
                 status = SpeechRecognitionStatus.NO_MATCH,
                 eventType = SpeechRecognitionEventType.NO_MATCH,
                 errorCode = event.errorCode,
             )
 
-            SpeechRecognitionEventType.TIMEOUT -> finishRecognitionWithError(
+            SpeechRecognitionEventType.TIMEOUT -> recoverRecognitionCycle(
                 status = SpeechRecognitionStatus.TIMEOUT,
                 eventType = SpeechRecognitionEventType.TIMEOUT,
                 errorCode = event.errorCode,
             )
 
-            SpeechRecognitionEventType.BUSY -> finishRecognitionWithError(
+            SpeechRecognitionEventType.BUSY -> recoverRecognitionCycle(
                 status = SpeechRecognitionStatus.BUSY,
                 eventType = SpeechRecognitionEventType.BUSY,
                 errorCode = event.errorCode,
             )
 
-            SpeechRecognitionEventType.PERMISSION_REQUIRED -> finishRecognitionWithError(
+            SpeechRecognitionEventType.PERMISSION_REQUIRED -> pauseForRecoverableRecognitionError(
                 status = SpeechRecognitionStatus.PERMISSION_NEEDED,
                 eventType = SpeechRecognitionEventType.PERMISSION_REQUIRED,
                 errorCode = event.errorCode,
@@ -271,14 +246,59 @@ class VoiceTurnController(
         }
     }
 
-    private fun finishRecognitionWithError(
+    private fun startListeningCycle() {
+        when (speechRecognizerGateway.checkAvailability()) {
+            SpeechRecognizerAvailability.AVAILABLE -> {
+                persistRecognitionState { session ->
+                    session.copy(
+                        phase = SessionPhase.LISTENING_USER,
+                        speechRecognition = SpeechRecognitionState(
+                            status = SpeechRecognitionStatus.LISTENING,
+                        ),
+                        updatedAtEpochMillis = clock.nowEpochMillis(),
+                    )
+                }
+                try {
+                    speechRecognizerGateway.startListening()
+                } catch (_: Exception) {
+                    finishRecognitionWithError(
+                        status = SpeechRecognitionStatus.ERROR,
+                        eventType = SpeechRecognitionEventType.ERROR,
+                        errorCode = null,
+                    )
+                }
+            }
+
+            SpeechRecognizerAvailability.PERMISSION_NEEDED -> pauseForRecoverableRecognitionError(
+                status = SpeechRecognitionStatus.PERMISSION_NEEDED,
+                eventType = SpeechRecognitionEventType.PERMISSION_REQUIRED,
+                errorCode = null,
+            )
+
+            SpeechRecognizerAvailability.UNAVAILABLE -> finishRecognitionWithError(
+                status = SpeechRecognitionStatus.ERROR,
+                eventType = SpeechRecognitionEventType.ERROR,
+                errorCode = null,
+            )
+        }
+    }
+
+    private fun recoverRecognitionCycle(
         status: SpeechRecognitionStatus,
         eventType: SpeechRecognitionEventType,
         errorCode: Int?,
     ) {
-        synchronized(lock) {
-            listenAfterAssistantCompletion = false
+        pauseForRecoverableRecognitionError(status, eventType, errorCode)
+        if (isContinuousLoopEnabled()) {
+            startListeningCycle()
         }
+    }
+
+    private fun pauseForRecoverableRecognitionError(
+        status: SpeechRecognitionStatus,
+        eventType: SpeechRecognitionEventType,
+        errorCode: Int?,
+    ) {
         persistRecognitionState { session ->
             session.copy(
                 phase = SessionPhase.AWAITING_USER_TURN,
@@ -291,6 +311,37 @@ class VoiceTurnController(
             )
         }
     }
+
+    private fun finishRecognitionWithError(
+        status: SpeechRecognitionStatus,
+        eventType: SpeechRecognitionEventType,
+        errorCode: Int?,
+    ) {
+        synchronized(lock) {
+            continuousLoopEnabled = false
+        }
+        pauseForRecoverableRecognitionError(status, eventType, errorCode)
+    }
+
+    private fun shouldHandleRecognitionEvent(type: SpeechRecognitionEventType): Boolean {
+        val session = store.load().session
+        if (session.phase != SessionPhase.LISTENING_USER) {
+            return false
+        }
+        return when (type) {
+            SpeechRecognitionEventType.LISTENING_STARTED,
+            SpeechRecognitionEventType.PARTIAL_TRANSCRIPT,
+            SpeechRecognitionEventType.FINAL_TRANSCRIPT,
+            SpeechRecognitionEventType.NO_MATCH,
+            SpeechRecognitionEventType.TIMEOUT,
+            SpeechRecognitionEventType.BUSY,
+            SpeechRecognitionEventType.PERMISSION_REQUIRED,
+            SpeechRecognitionEventType.ERROR,
+            -> session.speechRecognition.status != SpeechRecognitionStatus.FINAL_RECEIVED
+        }
+    }
+
+    private fun isContinuousLoopEnabled(): Boolean = synchronized(lock) { continuousLoopEnabled }
 
     private fun persistRecognitionState(update: (SessionState) -> SessionState) {
         val state = store.load()

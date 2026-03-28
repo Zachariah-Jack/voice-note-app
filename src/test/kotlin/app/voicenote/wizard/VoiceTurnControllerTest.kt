@@ -3,7 +3,6 @@ package app.voicenote.wizard
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import org.junit.jupiter.api.io.TempDir
 
@@ -12,45 +11,7 @@ class VoiceTurnControllerTest {
     lateinit var tempDir: Path
 
     @Test
-    fun `start session speaks the initial assistant prompt and arms one listen cycle`() {
-        val stateFile = tempDir.resolve("app-state.json")
-        val store = JsonFileAppStateStore(stateFile)
-        val speaker = RecordingAssistantSpeaker()
-        val recognizer = RecordingSpeechRecognizerGateway()
-        val service = SessionLoopService(
-            store = store,
-            wizardTurnClient = FakeWizardTurnClient(),
-            assistantSpeaker = speaker,
-            idGenerator = SequentialIdGenerator(),
-            clock = StepClock(),
-        )
-        val controller = VoiceTurnController(
-            store = store,
-            sessionLoopService = service,
-            speechRecognizerGateway = recognizer,
-            clock = StepClock(startAt = 50_000L),
-        )
-
-        val snapshot = controller.startSession("How can I help with your voice note?")
-
-        assertEquals(SessionPhase.SPEAKING_ASSISTANT, snapshot.session.phase)
-        assertEquals(
-            "How can I help with your voice note?",
-            snapshot.session.assistantSpeech.message,
-        )
-        assertEquals(
-            listOf("How can I help with your voice note?"),
-            speaker.spokenRequests.map { it.text },
-        )
-        assertEquals(0, recognizer.startListeningCalls)
-
-        speaker.emit(AssistantSpeakerEventType.DONE)
-
-        assertEquals(1, recognizer.startListeningCalls)
-    }
-
-    @Test
-    fun `assistant done starts one listen cycle and final transcript submits next wizard turn`() {
+    fun `assistant completion final transcript and next assistant reply restart listening for the next turn`() {
         val stateFile = tempDir.resolve("app-state.json")
         val store = JsonFileAppStateStore(stateFile)
         val speaker = RecordingAssistantSpeaker()
@@ -74,51 +35,163 @@ class VoiceTurnControllerTest {
         service.submitUserTurn("Kick off spoken loop")
 
         speaker.emit(AssistantSpeakerEventType.DONE)
-        val afterListeningStart = JsonFileAppStateStore(stateFile).load()
-
         assertEquals(1, recognizer.startListeningCalls)
-        assertEquals(SessionPhase.LISTENING_USER, afterListeningStart.session.phase)
-        assertEquals(SpeechRecognitionStatus.LISTENING, afterListeningStart.session.speechRecognition.status)
-
-        recognizer.emit(
-            SpeechRecognitionEvent(
-                type = SpeechRecognitionEventType.PARTIAL_TRANSCRIPT,
-                transcript = "partial draft",
-            ),
-        )
-        val afterPartial = JsonFileAppStateStore(stateFile).load()
-        val draftAfterPartial = afterPartial.findDraft(afterPartial.session.draftId!!)
-        assertEquals("partial draft", afterPartial.session.speechRecognition.partialTranscript)
-        assertFalse(draftAfterPartial.transcript.any { it.text == "partial draft" })
 
         recognizer.emit(
             SpeechRecognitionEvent(
                 type = SpeechRecognitionEventType.FINAL_TRANSCRIPT,
-                transcript = "final spoken note",
+                transcript = "Second turn",
             ),
         )
-        val afterFinal = JsonFileAppStateStore(stateFile).load()
-        val persistedDraft = afterFinal.findDraft(afterFinal.session.draftId!!)
+        val afterSecondReplyQueued = JsonFileAppStateStore(stateFile).load()
+        val draftAfterSecondTurn = afterSecondReplyQueued.findDraft(afterSecondReplyQueued.session.draftId!!)
 
         assertEquals(
             listOf(
                 "Kick off spoken loop",
                 "Local wizard reply #1: Kick off spoken loop",
-                "final spoken note",
-                "Local wizard reply #2: final spoken note",
+                "Second turn",
+                "Local wizard reply #2: Second turn",
             ),
-            persistedDraft.transcript.map { it.text },
+            draftAfterSecondTurn.transcript.map { it.text },
         )
-        assertEquals(SpeechRecognitionStatus.IDLE, afterFinal.session.speechRecognition.status)
-        assertEquals(1, recognizer.startListeningCalls)
+        assertEquals(SessionPhase.SPEAKING_ASSISTANT, afterSecondReplyQueued.session.phase)
 
         speaker.emit(AssistantSpeakerEventType.DONE)
-        assertEquals(1, recognizer.startListeningCalls)
+        val afterNextListenCycle = JsonFileAppStateStore(stateFile).load()
+
+        assertEquals(2, recognizer.startListeningCalls)
+        assertEquals(SessionPhase.LISTENING_USER, afterNextListenCycle.session.phase)
+        assertEquals(SpeechRecognitionStatus.LISTENING, afterNextListenCycle.session.speechRecognition.status)
     }
 
     @Test
-    fun `stop and cancel coordinate active recognition cleanly`() {
-        val stateFile = tempDir.resolve("app-state.json")
+    fun `explicit stop and cancel prevent the loop from re arming`() {
+        val stopStateFile = tempDir.resolve("stop-app-state.json")
+        val stopStore = JsonFileAppStateStore(stopStateFile)
+        val stopSpeaker = RecordingAssistantSpeaker()
+        val stopRecognizer = RecordingSpeechRecognizerGateway()
+        val stopService = SessionLoopService(
+            store = stopStore,
+            wizardTurnClient = FakeWizardTurnClient(),
+            assistantSpeaker = stopSpeaker,
+            idGenerator = SequentialIdGenerator(),
+            clock = StepClock(),
+        )
+        val stopController = VoiceTurnController(
+            store = stopStore,
+            sessionLoopService = stopService,
+            speechRecognizerGateway = stopRecognizer,
+            clock = StepClock(startAt = 50_000L),
+        )
+
+        stopService.startNewSession()
+        stopController.armNextVoiceTurn()
+        stopService.submitUserTurn("Prepare to stop")
+        stopController.stop()
+        stopSpeaker.emit(AssistantSpeakerEventType.DONE)
+        val afterStop = JsonFileAppStateStore(stopStateFile).load()
+
+        assertTrue(stopRecognizer.stopListeningCalled)
+        assertEquals(0, stopRecognizer.startListeningCalls)
+        assertEquals(SessionPhase.AWAITING_USER_TURN, afterStop.session.phase)
+        assertEquals(SpeechRecognitionStatus.IDLE, afterStop.session.speechRecognition.status)
+
+        val cancelStateFile = tempDir.resolve("cancel-app-state.json")
+        val cancelStore = JsonFileAppStateStore(cancelStateFile)
+        val cancelSpeaker = RecordingAssistantSpeaker()
+        val cancelRecognizer = RecordingSpeechRecognizerGateway()
+        val cancelService = SessionLoopService(
+            store = cancelStore,
+            wizardTurnClient = FakeWizardTurnClient(),
+            assistantSpeaker = cancelSpeaker,
+            idGenerator = SequentialIdGenerator(),
+            clock = StepClock(),
+        )
+        val cancelController = VoiceTurnController(
+            store = cancelStore,
+            sessionLoopService = cancelService,
+            speechRecognizerGateway = cancelRecognizer,
+            clock = StepClock(startAt = 50_000L),
+        )
+
+        cancelService.startNewSession()
+        cancelController.armNextVoiceTurn()
+        cancelService.submitUserTurn("Prepare to cancel")
+        cancelSpeaker.emit(AssistantSpeakerEventType.DONE)
+        assertEquals(1, cancelRecognizer.startListeningCalls)
+
+        cancelController.cancel()
+        cancelRecognizer.emit(
+            SpeechRecognitionEvent(
+                type = SpeechRecognitionEventType.FINAL_TRANSCRIPT,
+                transcript = "Late transcript should be ignored",
+            ),
+        )
+        cancelSpeaker.emit(AssistantSpeakerEventType.DONE)
+        val afterCancel = JsonFileAppStateStore(cancelStateFile).load()
+        val draftAfterCancel = afterCancel.findDraft(afterCancel.session.draftId!!)
+
+        assertTrue(cancelRecognizer.cancelCalled)
+        assertEquals(1, cancelRecognizer.startListeningCalls)
+        assertEquals(
+            listOf(
+                "Prepare to cancel",
+                "Local wizard reply #1: Prepare to cancel",
+            ),
+            draftAfterCancel.transcript.map { it.text },
+        )
+        assertEquals(SessionPhase.AWAITING_USER_TURN, afterCancel.session.phase)
+        assertEquals(SpeechRecognitionStatus.CANCELLED, afterCancel.session.speechRecognition.status)
+    }
+
+    @Test
+    fun `no match and timeout recover by starting a fresh listening cycle`() {
+        val stateFile = tempDir.resolve("recovery-app-state.json")
+        val store = RecordingAppStateStore(JsonFileAppStateStore(stateFile))
+        val speaker = RecordingAssistantSpeaker()
+        val recognizer = RecordingSpeechRecognizerGateway()
+        val service = SessionLoopService(
+            store = store,
+            wizardTurnClient = FakeWizardTurnClient(),
+            assistantSpeaker = speaker,
+            idGenerator = SequentialIdGenerator(),
+            clock = StepClock(),
+        )
+        val controller = VoiceTurnController(
+            store = store,
+            sessionLoopService = service,
+            speechRecognizerGateway = recognizer,
+            clock = StepClock(startAt = 50_000L),
+        )
+
+        service.startNewSession()
+        controller.armNextVoiceTurn()
+        service.submitUserTurn("Recoverable turn")
+        speaker.emit(AssistantSpeakerEventType.DONE)
+
+        recognizer.emit(SpeechRecognitionEvent(type = SpeechRecognitionEventType.NO_MATCH))
+        recognizer.emit(SpeechRecognitionEvent(type = SpeechRecognitionEventType.TIMEOUT))
+        val persistedState = JsonFileAppStateStore(stateFile).load()
+        val draft = persistedState.findDraft(persistedState.session.draftId!!)
+
+        assertEquals(3, recognizer.startListeningCalls)
+        assertTrue(store.savedStates.any { it.session.speechRecognition.status == SpeechRecognitionStatus.NO_MATCH })
+        assertTrue(store.savedStates.any { it.session.speechRecognition.status == SpeechRecognitionStatus.TIMEOUT })
+        assertEquals(
+            listOf(
+                "Recoverable turn",
+                "Local wizard reply #1: Recoverable turn",
+            ),
+            draft.transcript.map { it.text },
+        )
+        assertEquals(SessionPhase.LISTENING_USER, persistedState.session.phase)
+        assertEquals(SpeechRecognitionStatus.LISTENING, persistedState.session.speechRecognition.status)
+    }
+
+    @Test
+    fun `persistence survives multi turn flow while keeping partial transcript separate`() {
+        val stateFile = tempDir.resolve("multi-turn-app-state.json")
         val store = JsonFileAppStateStore(stateFile)
         val speaker = RecordingAssistantSpeaker()
         val recognizer = RecordingSpeechRecognizerGateway()
@@ -138,36 +211,47 @@ class VoiceTurnControllerTest {
 
         service.startNewSession()
         controller.armNextVoiceTurn()
-        service.submitUserTurn("Prepare to stop")
+        service.submitUserTurn("First turn")
         speaker.emit(AssistantSpeakerEventType.DONE)
-
-        controller.stop()
-        val afterStop = JsonFileAppStateStore(stateFile).load()
-        assertTrue(recognizer.stopListeningCalled)
-        assertEquals(SessionPhase.AWAITING_USER_TURN, afterStop.session.phase)
-        assertEquals(SpeechRecognitionStatus.STOPPED, afterStop.session.speechRecognition.status)
-
-        controller.armNextVoiceTurn()
-        service.submitUserTurn("Prepare to cancel")
+        recognizer.emit(
+            SpeechRecognitionEvent(
+                type = SpeechRecognitionEventType.FINAL_TRANSCRIPT,
+                transcript = "Second turn",
+            ),
+        )
         speaker.emit(AssistantSpeakerEventType.DONE)
-        controller.cancel()
-        val afterCancel = JsonFileAppStateStore(stateFile).load()
-        assertTrue(recognizer.cancelCalled)
-        assertEquals(SessionPhase.AWAITING_USER_TURN, afterCancel.session.phase)
-        assertEquals(SpeechRecognitionStatus.CANCELLED, afterCancel.session.speechRecognition.status)
+        recognizer.emit(
+            SpeechRecognitionEvent(
+                type = SpeechRecognitionEventType.PARTIAL_TRANSCRIPT,
+                transcript = "Third turn partial",
+            ),
+        )
+
+        val reloadedState = JsonFileAppStateStore(stateFile).load()
+        val persistedDraft = reloadedState.findDraft(reloadedState.session.draftId!!)
+
+        assertEquals(
+            listOf(
+                "First turn",
+                "Local wizard reply #1: First turn",
+                "Second turn",
+                "Local wizard reply #2: Second turn",
+            ),
+            persistedDraft.transcript.map { it.text },
+        )
+        assertEquals(SessionPhase.LISTENING_USER, reloadedState.session.phase)
+        assertEquals("Third turn partial", reloadedState.session.speechRecognition.partialTranscript)
     }
 
     @Test
-    fun `permission needed after assistant completion persists recognition error without starting listen`() {
-        val stateFile = tempDir.resolve("app-state.json")
+    fun `hard failure pauses the loop and leaves the session recoverable`() {
+        val stateFile = tempDir.resolve("hard-failure-app-state.json")
         val store = JsonFileAppStateStore(stateFile)
         val speaker = RecordingAssistantSpeaker()
-        val recognizer = RecordingSpeechRecognizerGateway(
-            availability = SpeechRecognizerAvailability.PERMISSION_NEEDED,
-        )
+        val recognizer = RecordingSpeechRecognizerGateway()
         val service = SessionLoopService(
             store = store,
-            wizardTurnClient = FakeWizardTurnClient(),
+            wizardTurnClient = ThrowingWizardTurnClient(),
             assistantSpeaker = speaker,
             idGenerator = SequentialIdGenerator(),
             clock = StepClock(),
@@ -179,20 +263,44 @@ class VoiceTurnControllerTest {
             clock = StepClock(startAt = 50_000L),
         )
 
-        service.startNewSession()
-        controller.armNextVoiceTurn()
-        service.submitUserTurn("Need permission handling")
-
+        controller.startSession("Continuous loop prompt")
         speaker.emit(AssistantSpeakerEventType.DONE)
+        recognizer.emit(
+            SpeechRecognitionEvent(
+                type = SpeechRecognitionEventType.FINAL_TRANSCRIPT,
+                transcript = "This should fail",
+            ),
+        )
         val persistedState = JsonFileAppStateStore(stateFile).load()
+        val persistedDraft = persistedState.findDraft(persistedState.session.draftId!!)
 
-        assertEquals(0, recognizer.startListeningCalls)
+        assertEquals(listOf("This should fail"), persistedDraft.transcript.map { it.text })
         assertEquals(SessionPhase.AWAITING_USER_TURN, persistedState.session.phase)
-        assertEquals(SpeechRecognitionStatus.PERMISSION_NEEDED, persistedState.session.speechRecognition.status)
+        assertEquals(SpeechRecognitionStatus.ERROR, persistedState.session.speechRecognition.status)
         assertEquals(
-            SpeechRecognitionEventType.PERMISSION_REQUIRED,
+            SpeechRecognitionEventType.ERROR,
             persistedState.session.speechRecognition.errorType,
         )
+
+        controller.resumeSession()
+        val afterResume = JsonFileAppStateStore(stateFile).load()
+
+        assertEquals(2, recognizer.startListeningCalls)
+        assertEquals(SessionPhase.LISTENING_USER, afterResume.session.phase)
+        assertEquals(SpeechRecognitionStatus.LISTENING, afterResume.session.speechRecognition.status)
+    }
+
+    private class RecordingAppStateStore(
+        private val delegate: AppStateStore,
+    ) : AppStateStore {
+        val savedStates = mutableListOf<WizardAppState>()
+
+        override fun load(): WizardAppState = delegate.load()
+
+        override fun save(state: WizardAppState) {
+            delegate.save(state)
+            savedStates += state
+        }
     }
 
     private class StepClock(
@@ -206,6 +314,12 @@ class VoiceTurnControllerTest {
         private var startAt: Int = 1,
     ) : IdGenerator {
         override fun nextId(prefix: String): String = "$prefix-${startAt++}"
+    }
+
+    private class ThrowingWizardTurnClient : WizardTurnClient {
+        override fun runTurn(request: WizardTurnRequest): WizardTurnResponse {
+            throw WizardTurnClientException("Simulated hard failure")
+        }
     }
 
     private class RecordingAssistantSpeaker : AssistantSpeaker {
