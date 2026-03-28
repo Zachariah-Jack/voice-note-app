@@ -3,6 +3,7 @@ package app.voicenote.wizard
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -259,6 +260,240 @@ class SessionLoopServiceTest {
     }
 
     @Test
+    fun `create todo is blocked when organization selection is unresolved`() {
+        val stateFile = tempDir.resolve("app-state.json")
+        val store = JsonFileAppStateStore(stateFile)
+        val service = SessionLoopService(
+            store = store,
+            wizardTurnClient = LookupRequestWizardTurnClient(
+                wizardMessage = "I need the organization and job before I can review that todo.",
+                jobLookupQuery = "Main Street remodel",
+                todoTitle = "Call the supplier",
+                createTodoRequested = true,
+            ),
+            jobTreadLookupRepository = FixedJobTreadLookupRepository(
+                execution = JobTreadLookupExecution(
+                    organizationSelection = selectionRequiredOrganizationState(),
+                    lookupState = JobTreadLookupState(
+                        requestedReferenceText = "Main Street remodel",
+                        snapshotStatus = JobTreadSnapshotStatus.SELECTION_REQUIRED,
+                        resolutionStatus = JobTreadResolutionStatus.UNRESOLVED,
+                        failureMessage = "Select a JobTread organization before lookup can run.",
+                        updatedAtEpochMillis = 3_000L,
+                    ),
+                ),
+            ),
+            idGenerator = SequentialIdGenerator(),
+            clock = StepClock(),
+        )
+
+        val started = service.startNewSession()
+        val snapshot = service.submitUserTurn("Create a todo for the Main Street remodel")
+        val persistedDraft = JsonFileAppStateStore(stateFile).load().findDraft(started.draft.id)
+
+        assertEquals(CreateTodoReadinessStatus.BLOCKED, snapshot.draft.createTodo.readinessStatus)
+        assertEquals(CreateTodoReadinessStatus.BLOCKED, persistedDraft.createTodo.readinessStatus)
+        assertTrue(
+            persistedDraft.createTodo.blockers.any { blocker ->
+                blocker.code == CreateTodoBlockerCode.JOBTREAD_ORGANIZATION_UNRESOLVED
+            },
+        )
+        assertFalse(persistedDraft.createTodo.isConfirmed)
+    }
+
+    @Test
+    fun `create todo is blocked when job match is ambiguous or unresolved`() {
+        fun submitDraft(lookupState: JobTreadLookupState, fileName: String): WizardDraft {
+            val service = SessionLoopService(
+                store = JsonFileAppStateStore(tempDir.resolve(fileName)),
+                wizardTurnClient = LookupRequestWizardTurnClient(
+                    wizardMessage = "I found the job context, but I still need local review.",
+                    jobLookupQuery = "Main Street remodel",
+                    todoTitle = "Call the supplier",
+                    createTodoRequested = true,
+                ),
+                jobTreadLookupRepository = FixedJobTreadLookupRepository(
+                    execution = JobTreadLookupExecution(
+                        organizationSelection = selectedOrganizationState(),
+                        lookupState = lookupState,
+                    ),
+                ),
+                idGenerator = SequentialIdGenerator(),
+                clock = StepClock(),
+            )
+
+            val started = service.startNewSession()
+            return service.submitUserTurn("Create a todo for the Main Street remodel")
+                .draft
+                .takeIf { it.id == started.draft.id }
+                ?: error("Expected the same draft to remain active.")
+        }
+
+        val ambiguousDraft = submitDraft(
+            lookupState = JobTreadLookupState(
+                requestedReferenceText = "Main Street remodel",
+                organizationId = "org-1",
+                organizationName = "Northwind Builders",
+                snapshotStatus = JobTreadSnapshotStatus.LOADED,
+                resolutionStatus = JobTreadResolutionStatus.AMBIGUOUS,
+                ambiguousJobs = listOf(
+                    JobTreadJobSummary(id = "job-1", name = "Main Street Remodel"),
+                    JobTreadJobSummary(id = "job-2", name = "Main Street Remodel - Phase 2"),
+                ),
+                updatedAtEpochMillis = 4_000L,
+            ),
+            fileName = "ambiguous-app-state.json",
+        )
+        val unresolvedDraft = submitDraft(
+            lookupState = JobTreadLookupState(
+                requestedReferenceText = "Main Street remodel",
+                organizationId = "org-1",
+                organizationName = "Northwind Builders",
+                snapshotStatus = JobTreadSnapshotStatus.LOADED,
+                resolutionStatus = JobTreadResolutionStatus.UNRESOLVED,
+                updatedAtEpochMillis = 4_000L,
+            ),
+            fileName = "unresolved-app-state.json",
+        )
+
+        assertEquals(CreateTodoReadinessStatus.BLOCKED, ambiguousDraft.createTodo.readinessStatus)
+        assertTrue(
+            ambiguousDraft.createTodo.blockers.any { blocker ->
+                blocker.code == CreateTodoBlockerCode.AMBIGUOUS_JOB_MATCH
+            },
+        )
+        assertEquals(CreateTodoReadinessStatus.BLOCKED, unresolvedDraft.createTodo.readinessStatus)
+        assertTrue(
+            unresolvedDraft.createTodo.blockers.any { blocker ->
+                blocker.code == CreateTodoBlockerCode.JOB_LOOKUP_UNRESOLVED
+            },
+        )
+    }
+
+    @Test
+    fun `create todo becomes ready for confirmation when local data is resolved`() {
+        val store = JsonFileAppStateStore(tempDir.resolve("app-state.json"))
+        val service = SessionLoopService(
+            store = store,
+            wizardTurnClient = LookupRequestWizardTurnClient(
+                wizardMessage = "I have enough local context to review that todo.",
+                jobLookupQuery = "Main Street remodel",
+                todoTitle = "Call the supplier",
+                createTodoRequested = true,
+            ),
+            jobTreadLookupRepository = FixedJobTreadLookupRepository(
+                execution = JobTreadLookupExecution(
+                    organizationSelection = selectedOrganizationState(),
+                    lookupState = resolvedLookupState(),
+                ),
+            ),
+            idGenerator = SequentialIdGenerator(),
+            clock = StepClock(),
+        )
+
+        service.startNewSession()
+        val snapshot = service.submitUserTurn("Create a todo for the Main Street remodel")
+        val createTodo = snapshot.draft.createTodo
+        val summary = createTodo.confirmationSummary
+
+        assertEquals(CreateTodoReadinessStatus.READY_FOR_CONFIRMATION, createTodo.readinessStatus)
+        assertTrue(createTodo.blockers.isEmpty())
+        assertNotNull(summary)
+        assertEquals("org-1", summary.organizationId)
+        assertEquals("Northwind Builders", summary.organizationName)
+        assertEquals("job-1", summary.jobId)
+        assertEquals("Main Street Remodel - Smith Family / 12 Main Street", summary.jobLabel)
+        assertEquals("Call the supplier", summary.title)
+        assertFalse(createTodo.isConfirmed)
+    }
+
+    @Test
+    fun `create todo confirmation persists across resume and restart`() {
+        val stateFile = tempDir.resolve("app-state.json")
+        val firstService = SessionLoopService(
+            store = JsonFileAppStateStore(stateFile),
+            wizardTurnClient = LookupRequestWizardTurnClient(
+                wizardMessage = "I have enough local context to review that todo.",
+                jobLookupQuery = "Main Street remodel",
+                todoTitle = "Call the supplier",
+                createTodoRequested = true,
+            ),
+            jobTreadLookupRepository = FixedJobTreadLookupRepository(
+                execution = JobTreadLookupExecution(
+                    organizationSelection = selectedOrganizationState(),
+                    lookupState = resolvedLookupState(),
+                ),
+            ),
+            idGenerator = SequentialIdGenerator(),
+            clock = StepClock(),
+        )
+
+        firstService.startNewSession()
+        val submitted = firstService.submitUserTurn("Create a todo for the Main Street remodel")
+        val confirmedDraft = firstService.updateCreateTodoConfirmation(submitted.draft.id, confirmed = true)
+        val reloadedService = SessionLoopService(
+            store = JsonFileAppStateStore(stateFile),
+            wizardTurnClient = FakeWizardTurnClient(),
+            idGenerator = SequentialIdGenerator(startAt = 20),
+            clock = StepClock(startAt = 20_000L),
+        )
+        val resumed = reloadedService.resumeDraft(submitted.draft.id)
+
+        assertNotNull(confirmedDraft)
+        assertTrue(confirmedDraft.createTodo.isConfirmed)
+        assertNotNull(resumed)
+        assertEquals(CreateTodoReadinessStatus.READY_FOR_CONFIRMATION, resumed.draft.createTodo.readinessStatus)
+        assertTrue(resumed.draft.createTodo.isConfirmed)
+        assertEquals(
+            confirmedDraft.createTodo.confirmationSummary,
+            resumed.draft.createTodo.confirmationSummary,
+        )
+    }
+
+    @Test
+    fun `create todo safely downgrades from confirmed to blocked when lookup context changes`() {
+        val stateFile = tempDir.resolve("app-state.json")
+        val store = JsonFileAppStateStore(stateFile)
+        val service = SessionLoopService(
+            store = store,
+            wizardTurnClient = LookupRequestWizardTurnClient(
+                wizardMessage = "I have enough local context to review that todo.",
+                jobLookupQuery = "Main Street remodel",
+                todoTitle = "Call the supplier",
+                createTodoRequested = true,
+            ),
+            jobTreadLookupRepository = FixedJobTreadLookupRepository(
+                execution = JobTreadLookupExecution(
+                    organizationSelection = selectedOrganizationState(
+                        selectedOrganizationId = "org-1",
+                        defaultOrganizationId = "org-1",
+                    ),
+                    lookupState = resolvedLookupState(),
+                ),
+            ),
+            idGenerator = SequentialIdGenerator(),
+            clock = StepClock(),
+        )
+
+        service.startNewSession()
+        val submitted = service.submitUserTurn("Create a todo for the Main Street remodel")
+        val confirmedDraft = service.updateCreateTodoConfirmation(submitted.draft.id, confirmed = true)
+        val selection = service.saveDefaultJobTreadOrganization("org-2")
+        val persistedDraft = JsonFileAppStateStore(stateFile).load().findDraft(submitted.draft.id)
+
+        assertNotNull(confirmedDraft)
+        assertTrue(confirmedDraft.createTodo.isConfirmed)
+        assertEquals("org-2", selection.selectedOrganizationId)
+        assertEquals(CreateTodoReadinessStatus.BLOCKED, persistedDraft.createTodo.readinessStatus)
+        assertFalse(persistedDraft.createTodo.isConfirmed)
+        assertTrue(
+            persistedDraft.createTodo.blockers.any { blocker ->
+                blocker.code == CreateTodoBlockerCode.JOB_LOOKUP_UNRESOLVED
+            },
+        )
+    }
+
+    @Test
     fun `stop assistant speech persists stop request and stopped state`() {
         val stateFile = tempDir.resolve("app-state.json")
         val speaker = RecordingAssistantSpeaker()
@@ -491,10 +726,14 @@ class SessionLoopServiceTest {
     private class LookupRequestWizardTurnClient(
         private val wizardMessage: String,
         private val jobLookupQuery: String,
+        private val todoTitle: String? = null,
+        private val createTodoRequested: Boolean? = null,
     ) : WizardTurnClient {
         override fun runTurn(request: WizardTurnRequest): WizardTurnResponse = WizardTurnResponse(
             wizardMessage = wizardMessage,
             jobLookupQuery = jobLookupQuery,
+            todoTitle = todoTitle,
+            createTodoRequested = createTodoRequested,
         )
     }
 
@@ -529,4 +768,56 @@ class SessionLoopServiceTest {
             error("Lookup service unavailable")
         }
     }
+
+    private fun selectionRequiredOrganizationState(): JobTreadOrganizationSelectionState =
+        JobTreadOrganizationSelectionState(
+            status = JobTreadOrganizationSelectionStatus.SELECTION_REQUIRED,
+            organizations = listOf(
+                JobTreadOrganization(id = "org-1", name = "Northwind Builders"),
+                JobTreadOrganization(id = "org-2", name = "Southwind Renovations"),
+            ),
+            updatedAtEpochMillis = 3_000L,
+        )
+
+    private fun selectedOrganizationState(
+        selectedOrganizationId: String = "org-1",
+        defaultOrganizationId: String = selectedOrganizationId,
+    ): JobTreadOrganizationSelectionState =
+        JobTreadOrganizationSelectionState(
+            status = JobTreadOrganizationSelectionStatus.SELECTED_FROM_SAVED_DEFAULT,
+            organizations = listOf(
+                JobTreadOrganization(id = "org-1", name = "Northwind Builders"),
+                JobTreadOrganization(id = "org-2", name = "Southwind Renovations"),
+            ),
+            selectedOrganizationId = selectedOrganizationId,
+            defaultOrganizationId = defaultOrganizationId,
+            updatedAtEpochMillis = 2_000L,
+        )
+
+    private fun resolvedLookupState(): JobTreadLookupState =
+        JobTreadLookupState(
+            requestedReferenceText = "Main Street remodel",
+            organizationId = "org-1",
+            organizationName = "Northwind Builders",
+            snapshotStatus = JobTreadSnapshotStatus.LOADED,
+            resolutionStatus = JobTreadResolutionStatus.RESOLVED,
+            snapshot = JobTreadLookupSnapshot(
+                organization = JobTreadOrganization(id = "org-1", name = "Northwind Builders"),
+                jobs = listOf(
+                    JobTreadJobSummary(
+                        id = "job-1",
+                        name = "Main Street Remodel",
+                        customerName = "Smith Family",
+                        locationName = "12 Main Street",
+                    ),
+                ),
+            ),
+            resolvedJob = JobTreadJobSummary(
+                id = "job-1",
+                name = "Main Street Remodel",
+                customerName = "Smith Family",
+                locationName = "12 Main Street",
+            ),
+            updatedAtEpochMillis = 4_000L,
+        )
 }

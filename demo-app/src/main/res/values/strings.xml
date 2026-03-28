@@ -14,6 +14,7 @@
     <string name="final_transcript_label">Final committed transcript</string>
     <string name="jobtread_organization_label">JobTread organization</string>
     <string name="jobtread_lookup_label">JobTread lookup</string>
+    <string name="create_todo_review_label">create_todo review</string>
     <string name="status_label">Current session status</string>
     <string name="status_initial">Phase: IDLE</string>
     <string name="empty_assistant_message">No assistant message yet.</string>
@@ -21,6 +22,9 @@
     <string name="empty_committed_transcript">No committed transcript yet.</string>
     <string name="empty_jobtread_organization">Refresh JobTread organizations to choose a default organization.</string>
     <string name="empty_jobtread_lookup">No JobTread lookup requested yet.</string>
+    <string name="empty_create_todo_readiness">No create_todo review signal yet.</string>
+    <string name="empty_create_todo_blockers">No create_todo blockers yet.</string>
+    <string name="empty_create_todo_summary">No local confirmation summary yet.</string>
     <string name="missing_openai_api_key">OPENAI_API_KEY is missing. Rebuild the demo app with the key in your environment.</string>
     <string name="record_audio_permission_denied">Microphone permission is required for the spoken turn demo.</string>
     <string name="session_created_resume_when_ready">Session created. Resume the voice loop when microphone access is ready.</string>
@@ -53,6 +57,15 @@
     <string name="refresh_jobtread_organizations">Refresh JobTread Organizations</string>
     <string name="save_jobtread_default_organization">Use as default: %1$s</string>
     <string name="saved_jobtread_default_organization">Default organization: %1$s</string>
+    <string name="confirm_create_todo">Confirm create_todo</string>
+    <string name="unconfirm_create_todo">Clear Confirmation</string>
+    <string name="create_todo_state">%1$s%2$s</string>
+    <string name="create_todo_confirmed_suffix"> (confirmed locally)</string>
+    <string name="create_todo_blockers_prefix">Blockers:
+%1$s</string>
+    <string name="create_todo_summary_format">Organization: %1$s
+Job: %2$s
+Title: %3$s</string>
     <string name="transcript_user_prefix">User:</string>
     <string name="transcript_assistant_prefix">Assistant:</string>
 </resources>

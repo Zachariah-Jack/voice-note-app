@@ -13,6 +13,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import app.voicenote.android.speech.AndroidSpeechRecognizerGateway
 import app.voicenote.android.tts.AndroidTextToSpeechAssistantSpeaker
+import app.voicenote.wizard.CreateTodoReadinessStatus
 import app.voicenote.wizard.DraftStatus
 import app.voicenote.wizard.HttpOpenAiResponsesTransport
 import app.voicenote.wizard.JobTreadLookupConfig
@@ -47,6 +48,11 @@ class MainActivity : Activity() {
     private lateinit var refreshJobTreadOrganizationsButton: Button
     private lateinit var jobTreadOrganizationOptionsContainer: LinearLayout
     private lateinit var jobTreadLookupTextView: TextView
+    private lateinit var createTodoReadinessTextView: TextView
+    private lateinit var createTodoBlockersTextView: TextView
+    private lateinit var createTodoSummaryTextView: TextView
+    private lateinit var confirmCreateTodoButton: Button
+    private lateinit var unconfirmCreateTodoButton: Button
     private lateinit var statusTextView: TextView
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -114,6 +120,11 @@ class MainActivity : Activity() {
         refreshJobTreadOrganizationsButton = findViewById(R.id.refreshJobTreadOrganizationsButton)
         jobTreadOrganizationOptionsContainer = findViewById(R.id.jobTreadOrganizationOptionsContainer)
         jobTreadLookupTextView = findViewById(R.id.jobTreadLookupTextView)
+        createTodoReadinessTextView = findViewById(R.id.createTodoReadinessTextView)
+        createTodoBlockersTextView = findViewById(R.id.createTodoBlockersTextView)
+        createTodoSummaryTextView = findViewById(R.id.createTodoSummaryTextView)
+        confirmCreateTodoButton = findViewById(R.id.confirmCreateTodoButton)
+        unconfirmCreateTodoButton = findViewById(R.id.unconfirmCreateTodoButton)
         statusTextView = findViewById(R.id.statusTextView)
     }
 
@@ -165,6 +176,14 @@ class MainActivity : Activity() {
 
         refreshJobTreadOrganizationsButton.setOnClickListener {
             refreshJobTreadOrganizations()
+        }
+
+        confirmCreateTodoButton.setOnClickListener {
+            updateCreateTodoConfirmation(confirmed = true)
+        }
+
+        unconfirmCreateTodoButton.setOnClickListener {
+            updateCreateTodoConfirmation(confirmed = false)
         }
 
         startSessionButton.setOnClickListener {
@@ -283,6 +302,27 @@ class MainActivity : Activity() {
         renderState(store.load())
     }
 
+    private fun updateCreateTodoConfirmation(confirmed: Boolean) {
+        statusNotice = null
+        val draft = store.load().displayDraft()
+        if (draft == null) {
+            renderState(store.load())
+            return
+        }
+        try {
+            sessionLoopService.updateCreateTodoConfirmation(
+                draftId = draft.id,
+                confirmed = confirmed,
+            )
+        } catch (exception: Exception) {
+            statusNotice = getString(
+                R.string.start_session_failed,
+                exception.message ?: exception::class.java.simpleName,
+            )
+        }
+        renderState(store.load())
+    }
+
     private fun releaseVoiceRuntime() {
         try {
             voiceTurnController.cancel()
@@ -306,6 +346,7 @@ class MainActivity : Activity() {
 
     private fun renderState(state: WizardAppState) {
         val draft = state.displayDraft()
+        val createTodo = draft?.createTodo
         val inboxState = DraftInboxViewStateFactory.create(state)
 
         renderActiveSession(inboxState)
@@ -319,6 +360,7 @@ class MainActivity : Activity() {
             ?: getString(R.string.empty_committed_transcript)
         jobTreadLookupTextView.text = draft?.jobTreadLookup?.summaryText()
             ?: getString(R.string.empty_jobtread_lookup)
+        renderCreateTodoReview(draft)
         statusTextView.text = buildStatusText(state)
 
         val sessionBusy = state.session.phase in activeSessionPhases
@@ -326,6 +368,11 @@ class MainActivity : Activity() {
         refreshJobTreadOrganizationsButton.isEnabled = !sessionBusy
         startSessionButton.isEnabled = state.session.draftId != null && !sessionBusy
         stopSessionButton.isEnabled = state.session.draftId != null || state.session.phase != SessionPhase.IDLE
+        confirmCreateTodoButton.isEnabled = !sessionBusy &&
+            createTodo != null &&
+            createTodo.readinessStatus == CreateTodoReadinessStatus.READY_FOR_CONFIRMATION &&
+            !createTodo.isConfirmed
+        unconfirmCreateTodoButton.isEnabled = !sessionBusy && createTodo?.isConfirmed == true
     }
 
     private fun renderActiveSession(inboxState: DraftInboxViewState) {
@@ -418,6 +465,43 @@ class MainActivity : Activity() {
                 },
             )
         }
+    }
+
+    private fun renderCreateTodoReview(draft: WizardDraft?) {
+        val createTodo = draft?.createTodo
+        if (createTodo == null) {
+            createTodoReadinessTextView.text = getString(R.string.empty_create_todo_readiness)
+            createTodoBlockersTextView.text = getString(R.string.empty_create_todo_blockers)
+            createTodoSummaryTextView.text = getString(R.string.empty_create_todo_summary)
+            return
+        }
+
+        val confirmedSuffix = if (createTodo.isConfirmed) {
+            getString(R.string.create_todo_confirmed_suffix)
+        } else {
+            ""
+        }
+        createTodoReadinessTextView.text = getString(
+            R.string.create_todo_state,
+            createTodo.readinessStatus.name,
+            confirmedSuffix,
+        )
+        createTodoBlockersTextView.text = if (createTodo.blockers.isEmpty()) {
+            getString(R.string.empty_create_todo_blockers)
+        } else {
+            getString(
+                R.string.create_todo_blockers_prefix,
+                createTodo.blockers.joinToString(separator = "\n") { blocker -> "- ${blocker.message}" },
+            )
+        }
+        createTodoSummaryTextView.text = createTodo.confirmationSummary?.let { summary ->
+            getString(
+                R.string.create_todo_summary_format,
+                summary.organizationName,
+                summary.jobLabel,
+                summary.title,
+            )
+        } ?: getString(R.string.empty_create_todo_summary)
     }
 
     private fun buildDraftRow(

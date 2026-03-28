@@ -64,13 +64,21 @@ class SessionLoopService(
         draft: WizardDraft,
     ): SessionSnapshot {
         val now = clock.nowEpochMillis()
+        val recalculatedDraft = recalculateCreateTodoDraft(
+            draft = draft,
+            organizationSelection = existingState.jobTreadOrganizationSelection,
+            nowEpochMillis = now,
+        )
         val resumedSession = SessionState(
-            draftId = draft.id,
+            draftId = recalculatedDraft.id,
             phase = SessionPhase.AWAITING_USER_TURN,
             updatedAtEpochMillis = now,
         )
-        store.save(existingState.copy(session = resumedSession))
-        return SessionSnapshot(draft = draft, session = resumedSession)
+        val updatedState = existingState
+            .upsertDraft(recalculatedDraft)
+            .copy(session = resumedSession)
+        store.save(updatedState)
+        return SessionSnapshot(draft = recalculatedDraft, session = resumedSession)
     }
 
     @Synchronized
@@ -106,8 +114,12 @@ class SessionLoopService(
                 updatedAtEpochMillis = clock.nowEpochMillis(),
             )
         }
-        store.save(state.copy(jobTreadOrganizationSelection = refreshedSelection))
-        return refreshedSelection
+        val updatedState = recalculateCreateTodoDrafts(
+            state = state.copy(jobTreadOrganizationSelection = refreshedSelection),
+            nowEpochMillis = clock.nowEpochMillis(),
+        )
+        store.save(updatedState)
+        return updatedState.jobTreadOrganizationSelection
     }
 
     @Synchronized
@@ -117,8 +129,30 @@ class SessionLoopService(
             organizationId = organizationId,
             updatedAtEpochMillis = clock.nowEpochMillis(),
         )
-        store.save(state.copy(jobTreadOrganizationSelection = updatedSelection))
-        return updatedSelection
+        val updatedState = recalculateCreateTodoDrafts(
+            state = state.copy(jobTreadOrganizationSelection = updatedSelection),
+            nowEpochMillis = clock.nowEpochMillis(),
+        )
+        store.save(updatedState)
+        return updatedState.jobTreadOrganizationSelection
+    }
+
+    @Synchronized
+    fun updateCreateTodoConfirmation(
+        draftId: String,
+        confirmed: Boolean,
+    ): WizardDraft? {
+        val state = store.load()
+        val draft = state.drafts.firstOrNull { it.id == draftId } ?: return null
+        val updatedDraft = CreateTodoReviewStateCalculator.updateConfirmation(
+            draft = draft,
+            organizationSelection = state.jobTreadOrganizationSelection,
+            confirmed = confirmed,
+            nowEpochMillis = clock.nowEpochMillis(),
+        )
+        val updatedState = state.upsertDraft(updatedDraft)
+        store.save(updatedState)
+        return updatedDraft
     }
 
     @Synchronized
@@ -172,14 +206,19 @@ class SessionLoopService(
                 wizardTurnId = idGenerator.nextId("turn"),
                 nowEpochMillis = clock.nowEpochMillis(),
             )
+            val recalculatedDraft = recalculateCreateTodoDraft(
+                draft = appliedState.draft,
+                organizationSelection = stateAfterUserTurn.jobTreadOrganizationSelection,
+                nowEpochMillis = clock.nowEpochMillis(),
+            )
             val stateAfterWizardTurn = stateAfterUserTurn
-                .upsertDraft(appliedState.draft)
+                .upsertDraft(recalculatedDraft)
                 .copy(session = appliedState.session)
             store.save(stateAfterWizardTurn)
 
             val stateAfterLookup = applyJobTreadLookupIfRequested(
                 state = stateAfterWizardTurn,
-                draft = appliedState.draft,
+                draft = recalculatedDraft,
                 requestedReferenceText = response.jobLookupQuery,
             )
             return queueAssistantSpeechIfPresent(stateAfterLookup)
@@ -390,12 +429,41 @@ class SessionLoopService(
             jobTreadLookup = lookupExecution.lookupState,
             updatedAtEpochMillis = clock.nowEpochMillis(),
         )
+        val recalculatedDraft = recalculateCreateTodoDraft(
+            draft = updatedDraft,
+            organizationSelection = lookupExecution.organizationSelection,
+            nowEpochMillis = clock.nowEpochMillis(),
+        )
         val updatedState = state
-            .upsertDraft(updatedDraft)
+            .upsertDraft(recalculatedDraft)
             .copy(jobTreadOrganizationSelection = lookupExecution.organizationSelection)
         store.save(updatedState)
         return updatedState
     }
+
+    private fun recalculateCreateTodoDrafts(
+        state: WizardAppState,
+        nowEpochMillis: Long,
+    ): WizardAppState {
+        val recalculatedDrafts = state.drafts.map { draft ->
+            recalculateCreateTodoDraft(
+                draft = draft,
+                organizationSelection = state.jobTreadOrganizationSelection,
+                nowEpochMillis = nowEpochMillis,
+            )
+        }
+        return state.copy(drafts = recalculatedDrafts.sortedBy(WizardDraft::createdAtEpochMillis))
+    }
+
+    private fun recalculateCreateTodoDraft(
+        draft: WizardDraft,
+        organizationSelection: JobTreadOrganizationSelectionState,
+        nowEpochMillis: Long,
+    ): WizardDraft = CreateTodoReviewStateCalculator.recalculate(
+        draft = draft,
+        organizationSelection = organizationSelection,
+        nowEpochMillis = nowEpochMillis,
+    )
 }
 
 private fun SessionState.requestAssistantSpeech(

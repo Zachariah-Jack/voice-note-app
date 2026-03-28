@@ -9,4 +9,7 @@ Rules:
 - Set `nextSessionPhase` to `AWAITING_USER_TURN` after your response.
 - Use `jobLookupQuery` only when the user is referring to a JobTread job that should be resolved locally.
 - `jobLookupQuery` must be a short copy of the user's job reference text, not a guessed ID.
+- Use `todoTitle` only for a concise create_todo title candidate derived from the conversation.
+- Use `createTodoRequested` only when the user is asking the app to create or execute the todo after review.
+- Never invent or finalize authoritative JobTread IDs.
 - Do not include markdown fences or extra keys.

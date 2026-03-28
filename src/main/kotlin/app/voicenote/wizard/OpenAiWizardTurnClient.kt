@@ -206,6 +206,7 @@ class OpenAiWizardTurnClient(
         appendLine("Draft status: ${request.draft.status}")
         appendLine("Session phase: ${request.session.phase}")
         appendLine("Current JobTread lookup: ${request.draft.jobTreadLookup.summaryText()}")
+        appendLine("Current create_todo readiness: ${request.draft.createTodo.readinessStatus}")
         appendLine("Latest user turn: ${request.userTurn.text}")
         appendLine()
         appendLine("Transcript so far:")
@@ -336,6 +337,13 @@ internal class WizardTurnStructuredResponseParser(
             if (allowedValues != null && stringValue !in allowedValues) {
                 throw WizardTurnClientException(
                     "Structured output field '$propertyName' must be one of ${allowedValues.sorted().joinToString(", ")}.",
+                )
+            }
+        } else if (expectedType == "boolean") {
+            val primitive = value as? JsonPrimitive
+            if (primitive?.booleanOrNull == null) {
+                throw WizardTurnClientException(
+                    "Structured output field '$propertyName' must be a boolean.",
                 )
             }
         }

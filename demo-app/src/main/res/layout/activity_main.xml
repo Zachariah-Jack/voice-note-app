@@ -175,6 +175,48 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
+            android:text="@string/create_todo_review_label"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/createTodoReadinessTextView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/empty_create_todo_readiness" />
+
+        <TextView
+            android:id="@+id/createTodoBlockersTextView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/empty_create_todo_blockers" />
+
+        <TextView
+            android:id="@+id/createTodoSummaryTextView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/empty_create_todo_summary" />
+
+        <Button
+            android:id="@+id/confirmCreateTodoButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/confirm_create_todo" />
+
+        <Button
+            android:id="@+id/unconfirmCreateTodoButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/unconfirm_create_todo" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
             android:text="@string/status_label"
             android:textStyle="bold" />
 

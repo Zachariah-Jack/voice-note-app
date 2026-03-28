@@ -30,6 +30,13 @@
     "jobLookupQuery": {
       "type": "string",
       "minLength": 1
+    },
+    "todoTitle": {
+      "type": "string",
+      "minLength": 1
+    },
+    "createTodoRequested": {
+      "type": "boolean"
     }
   }
 }
