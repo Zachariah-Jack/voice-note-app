@@ -12,6 +12,44 @@ class VoiceTurnControllerTest {
     lateinit var tempDir: Path
 
     @Test
+    fun `start session speaks the initial assistant prompt and arms one listen cycle`() {
+        val stateFile = tempDir.resolve("app-state.json")
+        val store = JsonFileAppStateStore(stateFile)
+        val speaker = RecordingAssistantSpeaker()
+        val recognizer = RecordingSpeechRecognizerGateway()
+        val service = SessionLoopService(
+            store = store,
+            wizardTurnClient = FakeWizardTurnClient(),
+            assistantSpeaker = speaker,
+            idGenerator = SequentialIdGenerator(),
+            clock = StepClock(),
+        )
+        val controller = VoiceTurnController(
+            store = store,
+            sessionLoopService = service,
+            speechRecognizerGateway = recognizer,
+            clock = StepClock(startAt = 50_000L),
+        )
+
+        val snapshot = controller.startSession("How can I help with your voice note?")
+
+        assertEquals(SessionPhase.SPEAKING_ASSISTANT, snapshot.session.phase)
+        assertEquals(
+            "How can I help with your voice note?",
+            snapshot.session.assistantSpeech.message,
+        )
+        assertEquals(
+            listOf("How can I help with your voice note?"),
+            speaker.spokenRequests.map { it.text },
+        )
+        assertEquals(0, recognizer.startListeningCalls)
+
+        speaker.emit(AssistantSpeakerEventType.DONE)
+
+        assertEquals(1, recognizer.startListeningCalls)
+    }
+
+    @Test
     fun `assistant done starts one listen cycle and final transcript submits next wizard turn`() {
         val stateFile = tempDir.resolve("app-state.json")
         val store = JsonFileAppStateStore(stateFile)

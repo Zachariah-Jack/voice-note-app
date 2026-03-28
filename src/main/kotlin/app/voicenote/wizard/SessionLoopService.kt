@@ -56,6 +56,22 @@ class SessionLoopService(
     }
 
     @Synchronized
+    fun speakAssistantMessage(text: String): SessionSnapshot {
+        val normalizedText = text.trim()
+        require(normalizedText.isNotEmpty()) { "Assistant speech text must not be blank." }
+
+        val state = store.load()
+        val activeDraftId = state.session.draftId
+            ?: error("No active draft is available.")
+        val currentDraft = state.findDraft(activeDraftId)
+        return queueAssistantSpeech(
+            state = state,
+            draft = currentDraft,
+            message = normalizedText,
+        )
+    }
+
+    @Synchronized
     fun submitUserTurn(text: String): SessionSnapshot {
         val normalizedText = text.trim()
         require(normalizedText.isNotEmpty()) { "User turn text must not be blank." }
@@ -181,11 +197,23 @@ class SessionLoopService(
         val latestWizardTurn = currentDraft.transcript.lastOrNull()
             ?.takeIf { it.speaker == TranscriptSpeaker.WIZARD }
             ?: return snapshotFrom(state)
-        val speaker = assistantSpeaker ?: return snapshotFrom(state)
+        return queueAssistantSpeech(
+            state = state,
+            draft = currentDraft,
+            message = latestWizardTurn.text,
+        )
+    }
 
+    private fun queueAssistantSpeech(
+        state: WizardAppState,
+        draft: WizardDraft,
+        message: String,
+    ): SessionSnapshot {
+        val speaker = assistantSpeaker ?: return SessionSnapshot(draft = draft, session = state.session)
         val utteranceId = idGenerator.nextId("utterance")
         val speechRequestedSession = state.session.requestAssistantSpeech(
             utteranceId = utteranceId,
+            message = message,
             updatedAtEpochMillis = clock.nowEpochMillis(),
         )
         val speechRequestedState = state.copy(session = speechRequestedSession)
@@ -195,10 +223,10 @@ class SessionLoopService(
             speaker.speak(
                 AssistantSpeechRequest(
                     utteranceId = utteranceId,
-                    text = latestWizardTurn.text,
+                    text = message,
                 ),
             )
-            SessionSnapshot(draft = currentDraft, session = speechRequestedSession)
+            SessionSnapshot(draft = draft, session = speechRequestedSession)
         } catch (exception: Exception) {
             val recoveredSession = speechRequestedSession.completeAssistantSpeech(
                 status = AssistantSpeechStatus.ERROR,
@@ -207,7 +235,7 @@ class SessionLoopService(
             )
             val recoveredState = speechRequestedState.copy(session = recoveredSession)
             store.save(recoveredState)
-            SessionSnapshot(draft = currentDraft, session = recoveredSession)
+            SessionSnapshot(draft = draft, session = recoveredSession)
         }
     }
 
@@ -262,12 +290,14 @@ class SessionLoopService(
 
 private fun SessionState.requestAssistantSpeech(
     utteranceId: String,
+    message: String,
     updatedAtEpochMillis: Long,
 ): SessionState = copy(
     phase = SessionPhase.SPEAKING_ASSISTANT,
     assistantSpeech = AssistantSpeechState(
         status = AssistantSpeechStatus.REQUESTED,
         utteranceId = utteranceId,
+        message = message,
         nextPhase = phase,
     ),
     updatedAtEpochMillis = updatedAtEpochMillis,
@@ -282,6 +312,7 @@ private fun SessionState.completeAssistantSpeech(
     phase = assistantSpeech.nextPhase,
     assistantSpeech = AssistantSpeechState(
         status = status,
+        message = assistantSpeech.message,
         nextPhase = assistantSpeech.nextPhase,
         errorCode = errorCode,
         errorMessage = errorMessage,

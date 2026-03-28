@@ -1,23 +1,43 @@
 package app.voicenote.wizard
 
+import java.util.concurrent.Executor
+
 class VoiceTurnController(
     private val store: AppStateStore,
     private val sessionLoopService: SessionLoopService,
     private val speechRecognizerGateway: SpeechRecognizerGateway,
     private val clock: EpochClock = SystemEpochClock,
+    private val eventExecutor: Executor = DirectExecutor,
+    private val turnExecutor: Executor = DirectExecutor,
 ) {
     private val lock = Any()
     private var listenAfterAssistantCompletion = false
 
     init {
-        sessionLoopService.setAssistantSpeakerEventObserver(::handleAssistantSpeakerEvent)
-        speechRecognizerGateway.setEventListener(SpeechRecognitionEventListener(::handleSpeechRecognitionEvent))
+        sessionLoopService.setAssistantSpeakerEventObserver { event ->
+            eventExecutor.execute {
+                handleAssistantSpeakerEvent(event)
+            }
+        }
+        speechRecognizerGateway.setEventListener(
+            SpeechRecognitionEventListener { event ->
+                eventExecutor.execute {
+                    handleSpeechRecognitionEvent(event)
+                }
+            },
+        )
     }
 
     fun armNextVoiceTurn() {
         synchronized(lock) {
             listenAfterAssistantCompletion = true
         }
+    }
+
+    fun startSession(initialAssistantMessage: String): SessionSnapshot {
+        armNextVoiceTurn()
+        sessionLoopService.startNewSession()
+        return sessionLoopService.speakAssistantMessage(initialAssistantMessage)
     }
 
     fun stop() {
@@ -214,7 +234,9 @@ class VoiceTurnController(
                         updatedAtEpochMillis = clock.nowEpochMillis(),
                     )
                 }
-                sessionLoopService.submitUserTurn(transcript)
+                turnExecutor.execute {
+                    sessionLoopService.submitUserTurn(transcript)
+                }
             }
 
             SpeechRecognitionEventType.NO_MATCH -> finishRecognitionWithError(

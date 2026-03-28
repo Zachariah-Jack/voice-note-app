@@ -1,10 +1,7 @@
 package app.voicenote.wizard
 
+import java.net.HttpURLConnection
 import java.net.URI
-import java.net.http.HttpClient
-import java.net.http.HttpRequest
-import java.net.http.HttpResponse
-import java.time.Duration
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -84,31 +81,54 @@ interface OpenAiResponsesTransport {
 }
 
 class HttpOpenAiResponsesTransport(
-    private val httpClient: HttpClient = HttpClient.newBuilder().build(),
 ) : OpenAiResponsesTransport {
     override fun createResponse(requestBody: String, config: OpenAiWizardClientConfig): String {
-        val requestBuilder = HttpRequest.newBuilder()
-            .uri(URI.create("${config.baseUrl.trimEnd('/')}/responses"))
-            .timeout(Duration.ofMillis(config.timeoutMillis))
-            .header("Authorization", "Bearer ${config.apiKey}")
-            .header("Content-Type", "application/json")
-            .header("Accept", "application/json")
-            .POST(HttpRequest.BodyPublishers.ofString(requestBody))
-        config.organization?.let { requestBuilder.header("OpenAI-Organization", it) }
-
-        val response = try {
-            httpClient.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofString())
+        val timeoutMillis = config.timeoutMillis.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        val connection = try {
+            (URI.create("${config.baseUrl.trimEnd('/')}/responses").toURL().openConnection() as HttpURLConnection).apply {
+                connectTimeout = timeoutMillis
+                readTimeout = timeoutMillis
+                requestMethod = "POST"
+                doOutput = true
+                setRequestProperty("Authorization", "Bearer ${config.apiKey}")
+                setRequestProperty("Content-Type", "application/json")
+                setRequestProperty("Accept", "application/json")
+                config.organization?.let { setRequestProperty("OpenAI-Organization", it) }
+            }
         } catch (exception: Exception) {
+            throw WizardTurnClientException("OpenAI request could not be prepared.", exception)
+        }
+
+        try {
+            connection.outputStream.use { output ->
+                output.write(requestBody.toByteArray(Charsets.UTF_8))
+            }
+        } catch (exception: Exception) {
+            connection.disconnect()
             throw WizardTurnClientException("OpenAI request failed before a response was received.", exception)
         }
 
-        if (response.statusCode() !in 200..299) {
+        val responseBody = try {
+            val stream = if (connection.responseCode in 200..299) {
+                connection.inputStream
+            } else {
+                connection.errorStream ?: connection.inputStream
+            }
+            stream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+        } catch (exception: Exception) {
+            connection.disconnect()
+            throw WizardTurnClientException("OpenAI response could not be read.", exception)
+        }
+
+        if (connection.responseCode !in 200..299) {
+            connection.disconnect()
             throw WizardTurnClientException(
-                "OpenAI request failed with status ${response.statusCode()}: ${response.body().truncate()}",
+                "OpenAI request failed with status ${connection.responseCode}: ${responseBody.truncate()}",
             )
         }
 
-        return response.body()
+        connection.disconnect()
+        return responseBody
     }
 }
 

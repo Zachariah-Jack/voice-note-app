@@ -53,6 +53,7 @@ data class SessionState(
 data class AssistantSpeechState(
     val status: AssistantSpeechStatus = AssistantSpeechStatus.IDLE,
     val utteranceId: String? = null,
+    val message: String? = null,
     val nextPhase: SessionPhase = SessionPhase.AWAITING_USER_TURN,
     val errorCode: Int? = null,
     val errorMessage: String? = null,

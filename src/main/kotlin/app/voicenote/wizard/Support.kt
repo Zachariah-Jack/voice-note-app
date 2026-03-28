@@ -1,6 +1,7 @@
 package app.voicenote.wizard
 
 import java.util.UUID
+import java.util.concurrent.Executor
 
 interface EpochClock {
     fun nowEpochMillis(): Long
@@ -16,4 +17,10 @@ interface IdGenerator {
 
 object UuidIdGenerator : IdGenerator {
     override fun nextId(prefix: String): String = "$prefix-${UUID.randomUUID()}"
+}
+
+object DirectExecutor : Executor {
+    override fun execute(command: Runnable) {
+        command.run()
+    }
 }

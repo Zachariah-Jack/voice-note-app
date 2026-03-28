@@ -33,6 +33,32 @@ class SessionLoopServiceTest {
     }
 
     @Test
+    fun `manual assistant message queues speech without changing the committed transcript`() {
+        val stateFile = tempDir.resolve("app-state.json")
+        val store = JsonFileAppStateStore(stateFile)
+        val speaker = RecordingAssistantSpeaker()
+        val service = SessionLoopService(
+            store = store,
+            wizardTurnClient = FakeWizardTurnClient(),
+            assistantSpeaker = speaker,
+            idGenerator = SequentialIdGenerator(),
+            clock = StepClock(),
+        )
+
+        val started = service.startNewSession()
+        val queued = service.speakAssistantMessage("Welcome to the demo")
+        val persistedState = JsonFileAppStateStore(stateFile).load()
+
+        assertEquals(started.draft.id, queued.draft.id)
+        assertTrue(queued.draft.transcript.isEmpty())
+        assertEquals(SessionPhase.SPEAKING_ASSISTANT, queued.session.phase)
+        assertEquals(AssistantSpeechStatus.REQUESTED, queued.session.assistantSpeech.status)
+        assertEquals("Welcome to the demo", queued.session.assistantSpeech.message)
+        assertEquals("Welcome to the demo", speaker.spokenRequests.single().text)
+        assertEquals("Welcome to the demo", persistedState.session.assistantSpeech.message)
+    }
+
+    @Test
     fun `resume session loads the most recent unfinished draft`() {
         val store = JsonFileAppStateStore(tempDir.resolve("app-state.json"))
         store.save(
