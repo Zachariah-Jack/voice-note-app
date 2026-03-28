@@ -71,25 +71,34 @@ class SessionLoopService(
             .copy(session = generatingSession)
         store.save(stateAfterUserTurn)
 
-        val response = wizardTurnClient.runTurn(
-            WizardTurnRequest(
+        try {
+            val response = wizardTurnClient.runTurn(
+                WizardTurnRequest(
+                    draft = draftWithUserTurn,
+                    session = generatingSession,
+                    userTurn = userTurn,
+                ),
+            )
+
+            val appliedState = WizardTurnResponseApplier.apply(
                 draft = draftWithUserTurn,
                 session = generatingSession,
-                userTurn = userTurn,
-            ),
-        )
-
-        val appliedState = WizardTurnResponseApplier.apply(
-            draft = draftWithUserTurn,
-            session = generatingSession,
-            response = response,
-            wizardTurnId = idGenerator.nextId("turn"),
-            nowEpochMillis = clock.nowEpochMillis(),
-        )
-        val finalState = stateAfterUserTurn
-            .upsertDraft(appliedState.draft)
-            .copy(session = appliedState.session)
-        store.save(finalState)
-        return SessionSnapshot(draft = appliedState.draft, session = appliedState.session)
+                response = response,
+                wizardTurnId = idGenerator.nextId("turn"),
+                nowEpochMillis = clock.nowEpochMillis(),
+            )
+            val finalState = stateAfterUserTurn
+                .upsertDraft(appliedState.draft)
+                .copy(session = appliedState.session)
+            store.save(finalState)
+            return SessionSnapshot(draft = appliedState.draft, session = appliedState.session)
+        } catch (exception: Exception) {
+            val recoveredSession = generatingSession.copy(
+                phase = SessionPhase.AWAITING_USER_TURN,
+                updatedAtEpochMillis = clock.nowEpochMillis(),
+            )
+            store.save(stateAfterUserTurn.copy(session = recoveredSession))
+            throw exception
+        }
     }
 }

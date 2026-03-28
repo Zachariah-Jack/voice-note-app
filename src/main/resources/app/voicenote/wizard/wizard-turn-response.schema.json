@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "wizardMessage",
+    "nextDraftStatus",
+    "nextSessionPhase"
+  ],
+  "properties": {
+    "wizardMessage": {
+      "type": "string",
+      "minLength": 1
+    },
+    "nextDraftStatus": {
+      "type": "string",
+      "enum": [
+        "IN_PROGRESS",
+        "FINISHED"
+      ]
+    },
+    "nextSessionPhase": {
+      "type": "string",
+      "enum": [
+        "AWAITING_USER_TURN",
+        "RUNNING_WIZARD_TURN",
+        "IDLE"
+      ]
+    }
+  }
+}

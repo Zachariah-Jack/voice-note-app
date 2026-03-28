@@ -3,6 +3,7 @@ package app.voicenote.wizard
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import org.junit.jupiter.api.io.TempDir
@@ -142,6 +143,42 @@ class SessionLoopServiceTest {
         assertEquals(afterSecondTurn.session, persistedState.session)
     }
 
+    @Test
+    fun `safe failure behavior keeps persisted state consistent when wizard turn fails`() {
+        val stateFile = tempDir.resolve("app-state.json")
+        val store = JsonFileAppStateStore(stateFile)
+        val service = SessionLoopService(
+            store = store,
+            wizardTurnClient = OpenAiWizardTurnClient(
+                config = OpenAiWizardClientConfig(apiKey = "test-key", model = "test-model"),
+                transport = MissingStructuredOutputTransport(),
+                assets = WizardTurnContractAssets.loadDefault(),
+            ),
+            idGenerator = SequentialIdGenerator(),
+            clock = StepClock(),
+        )
+
+        val started = service.startNewSession()
+
+        assertFailsWith<WizardTurnClientException> {
+            service.submitUserTurn("This should stay local")
+        }
+
+        val persistedState = JsonFileAppStateStore(stateFile).load()
+        val persistedDraft = persistedState.findDraft(started.draft.id)
+
+        assertEquals(
+            listOf("This should stay local"),
+            persistedDraft.transcript.map { it.text },
+        )
+        assertEquals(
+            listOf(TranscriptSpeaker.USER),
+            persistedDraft.transcript.map { it.speaker },
+        )
+        assertEquals(SessionPhase.AWAITING_USER_TURN, persistedState.session.phase)
+        assertEquals(started.draft.id, persistedState.session.draftId)
+    }
+
     private class StepClock(
         private var startAt: Long = 1_000L,
         private val step: Long = 1_000L,
@@ -153,5 +190,10 @@ class SessionLoopServiceTest {
         private var startAt: Int = 1,
     ) : IdGenerator {
         override fun nextId(prefix: String): String = "$prefix-${startAt++}"
+    }
+
+    private class MissingStructuredOutputTransport : OpenAiResponsesTransport {
+        override fun createResponse(requestBody: String, config: OpenAiWizardClientConfig): String =
+            """{"output":[]}"""
     }
 }
