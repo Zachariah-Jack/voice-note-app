@@ -207,6 +207,67 @@ class SessionLoopServiceTest {
     }
 
     @Test
+    fun `persisted recovery keeps the latest lookup state on the draft`() {
+        val stateFile = tempDir.resolve("app-state.json")
+        val store = JsonFileAppStateStore(stateFile)
+        val service = SessionLoopService(
+            store = store,
+            wizardTurnClient = LookupRequestWizardTurnClient(
+                wizardMessage = "I found the right draft path.",
+                jobLookupQuery = "Garage Addition",
+            ),
+            jobTreadLookupRepository = FixedJobTreadLookupRepository(
+                JobTreadLookupState(
+                    requestedReferenceText = "Garage Addition",
+                    snapshotStatus = JobTreadSnapshotStatus.LOADED,
+                    resolutionStatus = JobTreadResolutionStatus.RESOLVED,
+                    snapshot = JobTreadLookupSnapshot(
+                        organization = JobTreadOrganization(
+                            id = "org-1",
+                            name = "Northwind Builders",
+                        ),
+                        jobs = listOf(
+                            JobTreadJobSummary(
+                                id = "job-1",
+                                name = "Garage Addition",
+                                customerName = "Sam Rivera",
+                                locationName = "55 Oak Avenue",
+                            ),
+                        ),
+                    ),
+                    resolvedJob = JobTreadJobSummary(
+                        id = "job-1",
+                        name = "Garage Addition",
+                        customerName = "Sam Rivera",
+                        locationName = "55 Oak Avenue",
+                    ),
+                    updatedAtEpochMillis = 2_000L,
+                ),
+            ),
+            idGenerator = SequentialIdGenerator(),
+            clock = StepClock(),
+        )
+
+        val started = service.startNewSession()
+        service.submitUserTurn("Please update the garage addition note")
+
+        val reloadedService = SessionLoopService(
+            store = JsonFileAppStateStore(stateFile),
+            wizardTurnClient = FakeWizardTurnClient(),
+            idGenerator = SequentialIdGenerator(startAt = 20),
+            clock = StepClock(startAt = 10_000L),
+        )
+        val resumed = reloadedService.resumeMostRecentUnfinishedDraft()
+        val persistedDraft = JsonFileAppStateStore(stateFile).load().findDraft(started.draft.id)
+
+        assertNotNull(resumed)
+        assertEquals(started.draft.id, resumed.draft.id)
+        assertEquals(JobTreadResolutionStatus.RESOLVED, persistedDraft.jobTreadLookup.resolutionStatus)
+        assertEquals("job-1", persistedDraft.jobTreadLookup.resolvedJob?.id)
+        assertEquals("Northwind Builders", persistedDraft.jobTreadLookup.snapshot.organization?.name)
+    }
+
+    @Test
     fun `stop assistant speech persists stop request and stopped state`() {
         val stateFile = tempDir.resolve("app-state.json")
         val speaker = RecordingAssistantSpeaker()
@@ -310,6 +371,39 @@ class SessionLoopServiceTest {
         assertEquals(started.draft.id, persistedState.session.draftId)
     }
 
+    @Test
+    fun `safe lookup failure behavior does not corrupt persisted draft or session`() {
+        val stateFile = tempDir.resolve("app-state.json")
+        val store = JsonFileAppStateStore(stateFile)
+        val service = SessionLoopService(
+            store = store,
+            wizardTurnClient = LookupRequestWizardTurnClient(
+                wizardMessage = "I could not confirm the job yet.",
+                jobLookupQuery = "Maple Street remodel",
+            ),
+            jobTreadLookupRepository = ThrowingJobTreadLookupRepository(),
+            idGenerator = SequentialIdGenerator(),
+            clock = StepClock(),
+        )
+
+        val started = service.startNewSession()
+        val snapshot = service.submitUserTurn("Find the Maple Street remodel")
+        val persistedState = JsonFileAppStateStore(stateFile).load()
+        val persistedDraft = persistedState.findDraft(started.draft.id)
+
+        assertEquals(
+            listOf(
+                "Find the Maple Street remodel",
+                "I could not confirm the job yet.",
+            ),
+            persistedDraft.transcript.map { it.text },
+        )
+        assertEquals(SessionPhase.AWAITING_USER_TURN, snapshot.session.phase)
+        assertEquals(SessionPhase.AWAITING_USER_TURN, persistedState.session.phase)
+        assertEquals(JobTreadSnapshotStatus.FAILED, persistedDraft.jobTreadLookup.snapshotStatus)
+        assertEquals(JobTreadResolutionStatus.UNRESOLVED, persistedDraft.jobTreadLookup.resolutionStatus)
+    }
+
     private class StepClock(
         private var startAt: Long = 1_000L,
         private val step: Long = 1_000L,
@@ -357,5 +451,27 @@ class SessionLoopServiceTest {
     private class MissingStructuredOutputTransport : OpenAiResponsesTransport {
         override fun createResponse(requestBody: String, config: OpenAiWizardClientConfig): String =
             """{"output":[]}"""
+    }
+
+    private class LookupRequestWizardTurnClient(
+        private val wizardMessage: String,
+        private val jobLookupQuery: String,
+    ) : WizardTurnClient {
+        override fun runTurn(request: WizardTurnRequest): WizardTurnResponse = WizardTurnResponse(
+            wizardMessage = wizardMessage,
+            jobLookupQuery = jobLookupQuery,
+        )
+    }
+
+    private class FixedJobTreadLookupRepository(
+        private val result: JobTreadLookupState,
+    ) : JobTreadLookupRepository {
+        override fun resolveJobReference(referenceText: String?): JobTreadLookupState = result
+    }
+
+    private class ThrowingJobTreadLookupRepository : JobTreadLookupRepository {
+        override fun resolveJobReference(referenceText: String?): JobTreadLookupState {
+            error("Lookup service unavailable")
+        }
     }
 }

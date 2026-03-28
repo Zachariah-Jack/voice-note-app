@@ -15,6 +15,8 @@ import app.voicenote.android.speech.AndroidSpeechRecognizerGateway
 import app.voicenote.android.tts.AndroidTextToSpeechAssistantSpeaker
 import app.voicenote.wizard.DraftStatus
 import app.voicenote.wizard.HttpOpenAiResponsesTransport
+import app.voicenote.wizard.JobTreadLookupConfig
+import app.voicenote.wizard.ReadOnlyJobTreadLookupRepository
 import app.voicenote.wizard.JsonFileAppStateStore
 import app.voicenote.wizard.OpenAiWizardClientConfig
 import app.voicenote.wizard.OpenAiWizardTurnClient
@@ -40,6 +42,7 @@ class MainActivity : Activity() {
     private lateinit var assistantMessageTextView: TextView
     private lateinit var partialTranscriptTextView: TextView
     private lateinit var finalTranscriptTextView: TextView
+    private lateinit var jobTreadLookupTextView: TextView
     private lateinit var statusTextView: TextView
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -103,6 +106,7 @@ class MainActivity : Activity() {
         assistantMessageTextView = findViewById(R.id.assistantMessageTextView)
         partialTranscriptTextView = findViewById(R.id.partialTranscriptTextView)
         finalTranscriptTextView = findViewById(R.id.finalTranscriptTextView)
+        jobTreadLookupTextView = findViewById(R.id.jobTreadLookupTextView)
         statusTextView = findViewById(R.id.statusTextView)
     }
 
@@ -132,6 +136,9 @@ class MainActivity : Activity() {
                     organization = BuildConfig.OPENAI_ORGANIZATION.ifBlank { null },
                 ),
                 transport = HttpOpenAiResponsesTransport(),
+            ),
+            jobTreadLookupRepository = ReadOnlyJobTreadLookupRepository(
+                configProvider = ::buildJobTreadLookupConfig,
             ),
             assistantSpeaker = speaker,
         )
@@ -272,6 +279,8 @@ class MainActivity : Activity() {
             ?: getString(R.string.empty_partial_transcript)
         finalTranscriptTextView.text = draft?.committedTranscriptText()
             ?: getString(R.string.empty_committed_transcript)
+        jobTreadLookupTextView.text = draft?.jobTreadLookup?.summaryText()
+            ?: getString(R.string.empty_jobtread_lookup)
         statusTextView.text = buildStatusText(state)
 
         val sessionBusy = state.session.phase in activeSessionPhases
@@ -437,6 +446,9 @@ class MainActivity : Activity() {
         if (!isOpenAiConfigured()) {
             lines += getString(R.string.status_openai_not_configured)
         }
+        if (!isJobTreadConfigured()) {
+            lines += getString(R.string.status_jobtread_not_configured)
+        }
         return lines.joinToString(separator = "\n")
     }
 
@@ -444,6 +456,19 @@ class MainActivity : Activity() {
         checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
     private fun isOpenAiConfigured(): Boolean = BuildConfig.OPENAI_API_KEY.isNotBlank()
+
+    private fun isJobTreadConfigured(): Boolean =
+        BuildConfig.JOBTREAD_PAVE_URL.isNotBlank() && BuildConfig.JOBTREAD_GRANT_KEY.isNotBlank()
+
+    private fun buildJobTreadLookupConfig(): JobTreadLookupConfig? {
+        if (!isJobTreadConfigured()) {
+            return null
+        }
+        return JobTreadLookupConfig(
+            paveUrl = BuildConfig.JOBTREAD_PAVE_URL,
+            grantKey = BuildConfig.JOBTREAD_GRANT_KEY,
+        )
+    }
 
     private fun WizardAppState.displayDraft(): WizardDraft? =
         session.draftId?.let { activeDraftId ->

@@ -22,6 +22,7 @@ data class WizardDraft(
     val id: String,
     val status: DraftStatus = DraftStatus.IN_PROGRESS,
     val transcript: List<TranscriptTurn> = emptyList(),
+    val jobTreadLookup: JobTreadLookupState = JobTreadLookupState(),
     val createdAtEpochMillis: Long,
     val updatedAtEpochMillis: Long,
 ) {

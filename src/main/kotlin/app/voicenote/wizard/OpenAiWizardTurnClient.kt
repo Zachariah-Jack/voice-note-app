@@ -205,6 +205,7 @@ class OpenAiWizardTurnClient(
         appendLine("Draft id: ${request.draft.id}")
         appendLine("Draft status: ${request.draft.status}")
         appendLine("Session phase: ${request.session.phase}")
+        appendLine("Current JobTread lookup: ${request.draft.jobTreadLookup.summaryText()}")
         appendLine("Latest user turn: ${request.userTurn.text}")
         appendLine()
         appendLine("Transcript so far:")

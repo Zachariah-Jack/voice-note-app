@@ -26,6 +26,10 @@
         "RUNNING_WIZARD_TURN",
         "IDLE"
       ]
+    },
+    "jobLookupQuery": {
+      "type": "string",
+      "minLength": 1
     }
   }
 }

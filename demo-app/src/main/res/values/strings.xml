@@ -12,11 +12,13 @@
     <string name="assistant_message_label">Assistant message</string>
     <string name="partial_transcript_label">Partial user transcript</string>
     <string name="final_transcript_label">Final committed transcript</string>
+    <string name="jobtread_lookup_label">JobTread lookup</string>
     <string name="status_label">Current session status</string>
     <string name="status_initial">Phase: IDLE</string>
     <string name="empty_assistant_message">No assistant message yet.</string>
     <string name="empty_partial_transcript">No partial transcript yet.</string>
     <string name="empty_committed_transcript">No committed transcript yet.</string>
+    <string name="empty_jobtread_lookup">No JobTread lookup requested yet.</string>
     <string name="missing_openai_api_key">OPENAI_API_KEY is missing. Rebuild the demo app with the key in your environment.</string>
     <string name="record_audio_permission_denied">Microphone permission is required for the spoken turn demo.</string>
     <string name="session_created_resume_when_ready">Session created. Resume the voice loop when microphone access is ready.</string>
@@ -45,6 +47,7 @@
     <string name="status_microphone_ready">Microphone permission: granted</string>
     <string name="status_microphone_permission_needed">Microphone permission: needed</string>
     <string name="status_openai_not_configured">OpenAI: missing API key in BuildConfig</string>
+    <string name="status_jobtread_not_configured">JobTread: missing Pave URL or grant key in BuildConfig</string>
     <string name="transcript_user_prefix">User:</string>
     <string name="transcript_assistant_prefix">Assistant:</string>
 </resources>

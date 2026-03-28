@@ -13,6 +13,8 @@ val openAiWizardModel = (System.getenv("OPENAI_WIZARD_MODEL")
 val openAiBaseUrl = (System.getenv("OPENAI_BASE_URL")
     ?: "https://api.openai.com/v1").escapeForBuildConfig()
 val openAiOrganization = (System.getenv("OPENAI_ORGANIZATION") ?: "").escapeForBuildConfig()
+val jobTreadPaveUrl = (System.getenv("JOBTREAD_PAVE_URL") ?: "").escapeForBuildConfig()
+val jobTreadGrantKey = (System.getenv("JOBTREAD_GRANT_KEY") ?: "").escapeForBuildConfig()
 
 repositories {
     google()
@@ -34,6 +36,8 @@ android {
         buildConfigField("String", "OPENAI_WIZARD_MODEL", "\"$openAiWizardModel\"")
         buildConfigField("String", "OPENAI_BASE_URL", "\"$openAiBaseUrl\"")
         buildConfigField("String", "OPENAI_ORGANIZATION", "\"$openAiOrganization\"")
+        buildConfigField("String", "JOBTREAD_PAVE_URL", "\"$jobTreadPaveUrl\"")
+        buildConfigField("String", "JOBTREAD_GRANT_KEY", "\"$jobTreadGrantKey\"")
     }
 
     buildFeatures {

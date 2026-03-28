@@ -7,4 +7,6 @@ Rules:
 - Keep `wizardMessage` concise and directly useful for the next drafting step.
 - Set `nextDraftStatus` to `IN_PROGRESS` unless the user has clearly finished the draft.
 - Set `nextSessionPhase` to `AWAITING_USER_TURN` after your response.
+- Use `jobLookupQuery` only when the user is referring to a JobTread job that should be resolved locally.
+- `jobLookupQuery` must be a short copy of the user's job reference text, not a guessed ID.
 - Do not include markdown fences or extra keys.

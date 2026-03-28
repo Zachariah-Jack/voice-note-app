@@ -13,6 +13,7 @@ data class WizardTurnResponse(
     val wizardMessage: String,
     val nextDraftStatus: DraftStatus = DraftStatus.IN_PROGRESS,
     val nextSessionPhase: SessionPhase = SessionPhase.AWAITING_USER_TURN,
+    val jobLookupQuery: String? = null,
 )
 
 open class WizardTurnClientException(

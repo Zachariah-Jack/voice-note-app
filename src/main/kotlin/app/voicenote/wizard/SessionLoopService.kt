@@ -3,6 +3,7 @@ package app.voicenote.wizard
 class SessionLoopService(
     private val store: AppStateStore,
     private val wizardTurnClient: WizardTurnClient,
+    private val jobTreadLookupRepository: JobTreadLookupRepository? = null,
     private val assistantSpeaker: AssistantSpeaker? = null,
     private val idGenerator: IdGenerator = UuidIdGenerator,
     private val clock: EpochClock = SystemEpochClock,
@@ -139,11 +140,17 @@ class SessionLoopService(
                 wizardTurnId = idGenerator.nextId("turn"),
                 nowEpochMillis = clock.nowEpochMillis(),
             )
-            val finalState = stateAfterUserTurn
+            val stateAfterWizardTurn = stateAfterUserTurn
                 .upsertDraft(appliedState.draft)
                 .copy(session = appliedState.session)
-            store.save(finalState)
-            return queueAssistantSpeechIfPresent(finalState)
+            store.save(stateAfterWizardTurn)
+
+            val stateAfterLookup = applyJobTreadLookupIfRequested(
+                state = stateAfterWizardTurn,
+                draft = appliedState.draft,
+                requestedReferenceText = response.jobLookupQuery,
+            )
+            return queueAssistantSpeechIfPresent(stateAfterLookup)
         } catch (exception: Exception) {
             val recoveredSession = generatingSession.copy(
                 phase = SessionPhase.AWAITING_USER_TURN,
@@ -302,6 +309,42 @@ class SessionLoopService(
             draft = state.findDraft(draftId),
             session = state.session,
         )
+    }
+
+    private fun applyJobTreadLookupIfRequested(
+        state: WizardAppState,
+        draft: WizardDraft,
+        requestedReferenceText: String?,
+    ): WizardAppState {
+        val normalizedReference = requestedReferenceText?.trim().takeUnless { it.isNullOrEmpty() }
+            ?: return state
+
+        val lookupState = try {
+            jobTreadLookupRepository?.resolveJobReference(normalizedReference)
+                ?: JobTreadLookupState(
+                    requestedReferenceText = normalizedReference,
+                    snapshotStatus = JobTreadSnapshotStatus.CONFIG_MISSING,
+                    resolutionStatus = JobTreadResolutionStatus.UNRESOLVED,
+                    failureMessage = "JobTread lookup repository is not configured.",
+                    updatedAtEpochMillis = clock.nowEpochMillis(),
+                )
+        } catch (exception: Exception) {
+            JobTreadLookupState(
+                requestedReferenceText = normalizedReference,
+                snapshotStatus = JobTreadSnapshotStatus.FAILED,
+                resolutionStatus = JobTreadResolutionStatus.UNRESOLVED,
+                failureMessage = exception.message ?: exception::class.java.simpleName,
+                updatedAtEpochMillis = clock.nowEpochMillis(),
+            )
+        }
+
+        val updatedDraft = draft.copy(
+            jobTreadLookup = lookupState,
+            updatedAtEpochMillis = clock.nowEpochMillis(),
+        )
+        val updatedState = state.upsertDraft(updatedDraft)
+        store.save(updatedState)
+        return updatedState
     }
 }
 
