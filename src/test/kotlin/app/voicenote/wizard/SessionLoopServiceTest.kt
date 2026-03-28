@@ -105,6 +105,67 @@ class SessionLoopServiceTest {
     }
 
     @Test
+    fun `assistant speaker lifecycle updates persisted session state`() {
+        val stateFile = tempDir.resolve("app-state.json")
+        val speaker = RecordingAssistantSpeaker()
+        val service = SessionLoopService(
+            store = JsonFileAppStateStore(stateFile),
+            wizardTurnClient = FakeWizardTurnClient(),
+            assistantSpeaker = speaker,
+            idGenerator = SequentialIdGenerator(),
+            clock = StepClock(),
+        )
+
+        service.startNewSession()
+        val queued = service.submitUserTurn("Speak this back")
+        val afterQueue = JsonFileAppStateStore(stateFile).load()
+
+        assertEquals(SessionPhase.SPEAKING_ASSISTANT, queued.session.phase)
+        assertEquals(AssistantSpeechStatus.REQUESTED, queued.session.assistantSpeech.status)
+        assertEquals("Local wizard reply #1: Speak this back", speaker.spokenRequests.single().text)
+        assertEquals(SessionPhase.SPEAKING_ASSISTANT, afterQueue.session.phase)
+
+        speaker.emit(AssistantSpeakerEventType.STARTED)
+        val afterStart = JsonFileAppStateStore(stateFile).load()
+        assertEquals(AssistantSpeechStatus.SPEAKING, afterStart.session.assistantSpeech.status)
+        assertEquals(SessionPhase.SPEAKING_ASSISTANT, afterStart.session.phase)
+
+        speaker.emit(AssistantSpeakerEventType.DONE)
+        val afterDone = JsonFileAppStateStore(stateFile).load()
+        assertEquals(SessionPhase.AWAITING_USER_TURN, afterDone.session.phase)
+        assertEquals(AssistantSpeechStatus.IDLE, afterDone.session.assistantSpeech.status)
+    }
+
+    @Test
+    fun `stop assistant speech persists stop request and stopped state`() {
+        val stateFile = tempDir.resolve("app-state.json")
+        val speaker = RecordingAssistantSpeaker()
+        val service = SessionLoopService(
+            store = JsonFileAppStateStore(stateFile),
+            wizardTurnClient = FakeWizardTurnClient(),
+            assistantSpeaker = speaker,
+            idGenerator = SequentialIdGenerator(),
+            clock = StepClock(),
+        )
+
+        service.startNewSession()
+        service.submitUserTurn("Need to stop")
+
+        val stopping = service.stopAssistantSpeech()
+        val afterStopRequest = JsonFileAppStateStore(stateFile).load()
+
+        assertNotNull(stopping)
+        assertTrue(speaker.stopCalled)
+        assertEquals(AssistantSpeechStatus.STOPPING, stopping.session.assistantSpeech.status)
+        assertEquals(AssistantSpeechStatus.STOPPING, afterStopRequest.session.assistantSpeech.status)
+
+        speaker.emit(AssistantSpeakerEventType.STOPPED)
+        val afterStopped = JsonFileAppStateStore(stateFile).load()
+        assertEquals(SessionPhase.AWAITING_USER_TURN, afterStopped.session.phase)
+        assertEquals(AssistantSpeechStatus.STOPPED, afterStopped.session.assistantSpeech.status)
+    }
+
+    @Test
     fun `persistence survives reloads across multiple turns`() {
         val stateFile = tempDir.resolve("app-state.json")
         val firstService = SessionLoopService(
@@ -190,6 +251,37 @@ class SessionLoopServiceTest {
         private var startAt: Int = 1,
     ) : IdGenerator {
         override fun nextId(prefix: String): String = "$prefix-${startAt++}"
+    }
+
+    private class RecordingAssistantSpeaker : AssistantSpeaker {
+        private var listener: AssistantSpeakerEventListener? = null
+        val spokenRequests = mutableListOf<AssistantSpeechRequest>()
+        var stopCalled = false
+
+        override fun setEventListener(listener: AssistantSpeakerEventListener?) {
+            this.listener = listener
+        }
+
+        override fun speak(request: AssistantSpeechRequest) {
+            spokenRequests += request
+        }
+
+        override fun stop() {
+            stopCalled = true
+        }
+
+        override fun release() = Unit
+
+        fun emit(type: AssistantSpeakerEventType, errorCode: Int? = null) {
+            val utteranceId = spokenRequests.last().utteranceId
+            listener?.onEvent(
+                AssistantSpeakerEvent(
+                    utteranceId = utteranceId,
+                    type = type,
+                    errorCode = errorCode,
+                ),
+            )
+        }
     }
 
     private class MissingStructuredOutputTransport : OpenAiResponsesTransport {

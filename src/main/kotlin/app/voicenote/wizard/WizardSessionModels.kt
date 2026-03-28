@@ -44,7 +44,17 @@ data class TranscriptTurn(
 data class SessionState(
     val draftId: String? = null,
     val phase: SessionPhase = SessionPhase.IDLE,
+    val assistantSpeech: AssistantSpeechState = AssistantSpeechState(),
     val updatedAtEpochMillis: Long = 0L,
+)
+
+@Serializable
+data class AssistantSpeechState(
+    val status: AssistantSpeechStatus = AssistantSpeechStatus.IDLE,
+    val utteranceId: String? = null,
+    val nextPhase: SessionPhase = SessionPhase.AWAITING_USER_TURN,
+    val errorCode: Int? = null,
+    val errorMessage: String? = null,
 )
 
 data class SessionSnapshot(
@@ -66,4 +76,14 @@ enum class SessionPhase {
     IDLE,
     AWAITING_USER_TURN,
     RUNNING_WIZARD_TURN,
+    SPEAKING_ASSISTANT,
+}
+
+enum class AssistantSpeechStatus {
+    IDLE,
+    REQUESTED,
+    SPEAKING,
+    STOPPING,
+    STOPPED,
+    ERROR,
 }
