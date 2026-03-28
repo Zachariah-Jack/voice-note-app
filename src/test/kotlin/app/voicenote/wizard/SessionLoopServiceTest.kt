@@ -494,6 +494,188 @@ class SessionLoopServiceTest {
     }
 
     @Test
+    fun `confirmed ready create todo builds a valid JobTread input from local data`() {
+        val repository = RecordingJobTreadCreateTodoRepository(
+            outcomes = listOf(createdTodoResult()),
+        )
+        val stateFile = tempDir.resolve("create-todo-build-input.json")
+        val (service, confirmedDraft) = prepareConfirmedCreateTodoDraft(
+            stateFile = stateFile,
+            repository = repository,
+        )
+
+        service.executeConfirmedCreateTodo(confirmedDraft.id)
+
+        assertEquals(
+            listOf(
+                JobTreadCreateTodoInput(
+                    organizationId = "org-1",
+                    organizationName = "Northwind Builders",
+                    jobId = "job-1",
+                    jobLabel = "Main Street Remodel - Smith Family / 12 Main Street",
+                    title = "Call the supplier",
+                ),
+            ),
+            repository.inputs,
+        )
+    }
+
+    @Test
+    fun `blocked create todo cannot execute`() {
+        val repository = RecordingJobTreadCreateTodoRepository(
+            outcomes = listOf(createdTodoResult()),
+        )
+        val service = SessionLoopService(
+            store = JsonFileAppStateStore(tempDir.resolve("create-todo-blocked.json")),
+            wizardTurnClient = LookupRequestWizardTurnClient(
+                wizardMessage = "I still need the right job.",
+                jobLookupQuery = "Main Street remodel",
+                todoTitle = "Call the supplier",
+                createTodoRequested = true,
+            ),
+            jobTreadLookupRepository = FixedJobTreadLookupRepository(
+                execution = JobTreadLookupExecution(
+                    organizationSelection = selectedOrganizationState(),
+                    lookupState = JobTreadLookupState(
+                        requestedReferenceText = "Main Street remodel",
+                        organizationId = "org-1",
+                        organizationName = "Northwind Builders",
+                        snapshotStatus = JobTreadSnapshotStatus.LOADED,
+                        resolutionStatus = JobTreadResolutionStatus.AMBIGUOUS,
+                        ambiguousJobs = listOf(
+                            JobTreadJobSummary(id = "job-1", name = "Main Street Remodel"),
+                            JobTreadJobSummary(id = "job-2", name = "Main Street Remodel - Phase 2"),
+                        ),
+                        updatedAtEpochMillis = 4_000L,
+                    ),
+                ),
+            ),
+            jobTreadCreateTodoRepository = repository,
+            idGenerator = SequentialIdGenerator(),
+            clock = StepClock(),
+        )
+
+        val submitted = service.startNewSession().let {
+            service.submitUserTurn("Create a todo for the Main Street remodel")
+        }
+
+        assertFailsWith<IllegalStateException> {
+            service.executeConfirmedCreateTodo(submitted.draft.id)
+        }
+        assertTrue(repository.inputs.isEmpty())
+    }
+
+    @Test
+    fun `create todo success result is persisted`() {
+        val stateFile = tempDir.resolve("create-todo-success.json")
+        val repository = RecordingJobTreadCreateTodoRepository(
+            outcomes = listOf(
+                createdTodoResult(
+                    id = "task-123",
+                    title = "Call the supplier",
+                    createdAtIso = "2026-03-28T14:15:00Z",
+                ),
+            ),
+        )
+        val (service, confirmedDraft) = prepareConfirmedCreateTodoDraft(
+            stateFile = stateFile,
+            repository = repository,
+        )
+
+        val executedDraft = service.executeConfirmedCreateTodo(confirmedDraft.id)
+        val persistedDraft = JsonFileAppStateStore(stateFile).load().findDraft(confirmedDraft.id)
+
+        assertNotNull(executedDraft)
+        assertEquals(CreateTodoExecutionStatus.SUCCESS, executedDraft.createTodo.execution.status)
+        assertEquals(CreateTodoExecutionStatus.SUCCESS, persistedDraft.createTodo.execution.status)
+        assertEquals("task-123", persistedDraft.createTodo.execution.createdTodo?.id)
+        assertEquals("Call the supplier", persistedDraft.createTodo.execution.createdTodo?.title)
+    }
+
+    @Test
+    fun `create todo failure is surfaced safely without losing the draft`() {
+        val stateFile = tempDir.resolve("create-todo-failure.json")
+        val repository = RecordingJobTreadCreateTodoRepository(
+            outcomes = listOf(JobTreadCreateTodoException("JobTread is unavailable right now.")),
+        )
+        val (service, confirmedDraft) = prepareConfirmedCreateTodoDraft(
+            stateFile = stateFile,
+            repository = repository,
+        )
+
+        val failedDraft = service.executeConfirmedCreateTodo(confirmedDraft.id)
+        val persistedDraft = JsonFileAppStateStore(stateFile).load().findDraft(confirmedDraft.id)
+
+        assertNotNull(failedDraft)
+        assertEquals(CreateTodoExecutionStatus.FAILURE, failedDraft.createTodo.execution.status)
+        assertEquals(CreateTodoExecutionStatus.FAILURE, persistedDraft.createTodo.execution.status)
+        assertEquals(
+            "JobTread is unavailable right now.",
+            persistedDraft.createTodo.execution.failureMessage,
+        )
+        assertEquals(
+            listOf(
+                "Create a todo for the Main Street remodel",
+                "I have enough local context to review that todo.",
+            ),
+            persistedDraft.transcript.map { it.text },
+        )
+    }
+
+    @Test
+    fun `create todo can retry after a failure`() {
+        val stateFile = tempDir.resolve("create-todo-retry.json")
+        val repository = RecordingJobTreadCreateTodoRepository(
+            outcomes = listOf(
+                JobTreadCreateTodoException("Temporary JobTread failure."),
+                createdTodoResult(id = "task-456"),
+            ),
+        )
+        val (service, confirmedDraft) = prepareConfirmedCreateTodoDraft(
+            stateFile = stateFile,
+            repository = repository,
+        )
+
+        val afterFailure = service.executeConfirmedCreateTodo(confirmedDraft.id)
+        val afterRetry = service.executeConfirmedCreateTodo(confirmedDraft.id)
+        val persistedDraft = JsonFileAppStateStore(stateFile).load().findDraft(confirmedDraft.id)
+
+        assertNotNull(afterFailure)
+        assertEquals(CreateTodoExecutionStatus.FAILURE, afterFailure.createTodo.execution.status)
+        assertNotNull(afterRetry)
+        assertEquals(CreateTodoExecutionStatus.SUCCESS, afterRetry.createTodo.execution.status)
+        assertEquals(CreateTodoExecutionStatus.SUCCESS, persistedDraft.createTodo.execution.status)
+        assertEquals("task-456", persistedDraft.createTodo.execution.createdTodo?.id)
+        assertEquals(2, repository.inputs.size)
+    }
+
+    @Test
+    fun `created todo result survives resume and restart`() {
+        val stateFile = tempDir.resolve("create-todo-restart.json")
+        val repository = RecordingJobTreadCreateTodoRepository(
+            outcomes = listOf(createdTodoResult(id = "task-789")),
+        )
+        val (firstService, confirmedDraft) = prepareConfirmedCreateTodoDraft(
+            stateFile = stateFile,
+            repository = repository,
+        )
+
+        firstService.executeConfirmedCreateTodo(confirmedDraft.id)
+        val reloadedService = SessionLoopService(
+            store = JsonFileAppStateStore(stateFile),
+            wizardTurnClient = FakeWizardTurnClient(),
+            idGenerator = SequentialIdGenerator(startAt = 20),
+            clock = StepClock(startAt = 20_000L),
+        )
+        val resumed = reloadedService.resumeDraft(confirmedDraft.id)
+
+        assertNotNull(resumed)
+        assertEquals(CreateTodoExecutionStatus.SUCCESS, resumed.draft.createTodo.execution.status)
+        assertEquals("task-789", resumed.draft.createTodo.execution.createdTodo?.id)
+        assertEquals("Call the supplier", resumed.draft.createTodo.execution.createdTodo?.title)
+    }
+
+    @Test
     fun `stop assistant speech persists stop request and stopped state`() {
         val stateFile = tempDir.resolve("app-state.json")
         val speaker = RecordingAssistantSpeaker()
@@ -769,6 +951,22 @@ class SessionLoopServiceTest {
         }
     }
 
+    private class RecordingJobTreadCreateTodoRepository(
+        outcomes: List<Any>,
+    ) : JobTreadCreateTodoRepository {
+        private val remainingOutcomes = ArrayDeque(outcomes)
+        val inputs = mutableListOf<JobTreadCreateTodoInput>()
+
+        override fun createTodo(input: JobTreadCreateTodoInput): JobTreadCreatedTodo {
+            inputs += input
+            return when (val outcome = remainingOutcomes.removeFirst()) {
+                is JobTreadCreatedTodo -> outcome
+                is Throwable -> throw outcome
+                else -> error("Unsupported create_todo outcome ${outcome::class.java.name}.")
+            }
+        }
+    }
+
     private fun selectionRequiredOrganizationState(): JobTreadOrganizationSelectionState =
         JobTreadOrganizationSelectionState(
             status = JobTreadOrganizationSelectionStatus.SELECTION_REQUIRED,
@@ -820,4 +1018,49 @@ class SessionLoopServiceTest {
             ),
             updatedAtEpochMillis = 4_000L,
         )
+
+    private fun prepareConfirmedCreateTodoDraft(
+        stateFile: Path,
+        repository: JobTreadCreateTodoRepository,
+    ): Pair<SessionLoopService, WizardDraft> {
+        val service = SessionLoopService(
+            store = JsonFileAppStateStore(stateFile),
+            wizardTurnClient = LookupRequestWizardTurnClient(
+                wizardMessage = "I have enough local context to review that todo.",
+                jobLookupQuery = "Main Street remodel",
+                todoTitle = "Call the supplier",
+                createTodoRequested = true,
+            ),
+            jobTreadLookupRepository = FixedJobTreadLookupRepository(
+                execution = JobTreadLookupExecution(
+                    organizationSelection = selectedOrganizationState(),
+                    lookupState = resolvedLookupState(),
+                ),
+            ),
+            jobTreadCreateTodoRepository = repository,
+            idGenerator = SequentialIdGenerator(),
+            clock = StepClock(),
+        )
+
+        service.startNewSession()
+        val submitted = service.submitUserTurn("Create a todo for the Main Street remodel")
+        val confirmed = service.updateCreateTodoConfirmation(submitted.draft.id, confirmed = true)
+            ?: error("Expected the create_todo draft to remain available.")
+        return service to confirmed
+    }
+
+    private fun createdTodoResult(
+        id: String = "task-123",
+        title: String = "Call the supplier",
+        createdAtIso: String = "2026-03-28T14:15:00Z",
+    ): JobTreadCreatedTodo = JobTreadCreatedTodo(
+        id = id,
+        title = title,
+        organizationId = "org-1",
+        organizationName = "Northwind Builders",
+        jobId = "job-1",
+        jobLabel = "Main Street Remodel - Smith Family / 12 Main Street",
+        targetType = "job",
+        createdAtIso = createdAtIso,
+    )
 }

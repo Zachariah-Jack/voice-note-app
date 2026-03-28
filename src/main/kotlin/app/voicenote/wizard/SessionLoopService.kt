@@ -4,6 +4,7 @@ class SessionLoopService(
     private val store: AppStateStore,
     private val wizardTurnClient: WizardTurnClient,
     private val jobTreadLookupRepository: JobTreadLookupRepository? = null,
+    private val jobTreadCreateTodoRepository: JobTreadCreateTodoRepository? = null,
     private val assistantSpeaker: AssistantSpeaker? = null,
     private val idGenerator: IdGenerator = UuidIdGenerator,
     private val clock: EpochClock = SystemEpochClock,
@@ -153,6 +154,84 @@ class SessionLoopService(
         val updatedState = state.upsertDraft(updatedDraft)
         store.save(updatedState)
         return updatedDraft
+    }
+
+    @Synchronized
+    fun executeConfirmedCreateTodo(draftId: String): WizardDraft? {
+        val state = store.load()
+        val draft = state.drafts.firstOrNull { it.id == draftId } ?: return null
+        val now = clock.nowEpochMillis()
+        val recalculatedDraft = recalculateCreateTodoDraft(
+            draft = draft,
+            organizationSelection = state.jobTreadOrganizationSelection,
+            nowEpochMillis = now,
+        )
+        val preparedState = state.upsertDraft(recalculatedDraft)
+        if (recalculatedDraft != draft) {
+            store.save(preparedState)
+        }
+
+        when (recalculatedDraft.createTodo.execution.status) {
+            CreateTodoExecutionStatus.SENDING ->
+                error("A create_todo request is already being sent for this draft.")
+            CreateTodoExecutionStatus.SUCCESS ->
+                error("This create_todo draft has already been sent successfully.")
+            CreateTodoExecutionStatus.IDLE,
+            CreateTodoExecutionStatus.FAILURE,
+            -> Unit
+        }
+
+        val input = CreateTodoExecutionInputFactory.build(recalculatedDraft)
+            ?: error("Local create_todo review must be ready and confirmed before sending.")
+        val summary = recalculatedDraft.createTodo.confirmationSummary
+            ?: error("Local create_todo confirmation summary is missing.")
+
+        val sendingDraft = recalculatedDraft.withCreateTodoExecution(
+            execution = CreateTodoExecutionState(
+                status = CreateTodoExecutionStatus.SENDING,
+                requestSummary = summary,
+                updatedAtEpochMillis = clock.nowEpochMillis(),
+            ),
+            nowEpochMillis = clock.nowEpochMillis(),
+        )
+        val sendingState = preparedState.upsertDraft(sendingDraft)
+        store.save(sendingState)
+
+        return try {
+            val createdTodo = jobTreadCreateTodoRepository?.createTodo(input)
+                ?: throw JobTreadCreateTodoException("JobTread create_todo repository is not configured.")
+            val successfulDraft = recalculateCreateTodoDraft(
+                draft = sendingDraft.withCreateTodoExecution(
+                    execution = CreateTodoExecutionState(
+                        status = CreateTodoExecutionStatus.SUCCESS,
+                        requestSummary = summary,
+                        createdTodo = createdTodo,
+                        updatedAtEpochMillis = clock.nowEpochMillis(),
+                    ),
+                    nowEpochMillis = clock.nowEpochMillis(),
+                ),
+                organizationSelection = sendingState.jobTreadOrganizationSelection,
+                nowEpochMillis = clock.nowEpochMillis(),
+            )
+            store.save(sendingState.upsertDraft(successfulDraft))
+            successfulDraft
+        } catch (exception: Exception) {
+            val failedDraft = recalculateCreateTodoDraft(
+                draft = sendingDraft.withCreateTodoExecution(
+                    execution = CreateTodoExecutionState(
+                        status = CreateTodoExecutionStatus.FAILURE,
+                        requestSummary = summary,
+                        failureMessage = exception.message ?: exception::class.java.simpleName,
+                        updatedAtEpochMillis = clock.nowEpochMillis(),
+                    ),
+                    nowEpochMillis = clock.nowEpochMillis(),
+                ),
+                organizationSelection = sendingState.jobTreadOrganizationSelection,
+                nowEpochMillis = clock.nowEpochMillis(),
+            )
+            store.save(sendingState.upsertDraft(failedDraft))
+            failedDraft
+        }
     }
 
     @Synchronized
@@ -465,6 +544,17 @@ class SessionLoopService(
         nowEpochMillis = nowEpochMillis,
     )
 }
+
+private fun WizardDraft.withCreateTodoExecution(
+    execution: CreateTodoExecutionState,
+    nowEpochMillis: Long,
+): WizardDraft = copy(
+    createTodo = createTodo.copy(
+        execution = execution,
+        updatedAtEpochMillis = nowEpochMillis,
+    ),
+    updatedAtEpochMillis = nowEpochMillis,
+)
 
 private fun SessionState.requestAssistantSpeech(
     utteranceId: String,

@@ -13,15 +13,17 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import app.voicenote.android.speech.AndroidSpeechRecognizerGateway
 import app.voicenote.android.tts.AndroidTextToSpeechAssistantSpeaker
+import app.voicenote.wizard.CreateTodoExecutionStatus
 import app.voicenote.wizard.CreateTodoReadinessStatus
 import app.voicenote.wizard.DraftStatus
 import app.voicenote.wizard.HttpOpenAiResponsesTransport
 import app.voicenote.wizard.JobTreadLookupConfig
 import app.voicenote.wizard.JobTreadOrganizationSelectionState
-import app.voicenote.wizard.ReadOnlyJobTreadLookupRepository
 import app.voicenote.wizard.JsonFileAppStateStore
+import app.voicenote.wizard.LiveJobTreadCreateTodoRepository
 import app.voicenote.wizard.OpenAiWizardClientConfig
 import app.voicenote.wizard.OpenAiWizardTurnClient
+import app.voicenote.wizard.ReadOnlyJobTreadLookupRepository
 import app.voicenote.wizard.SessionLoopService
 import app.voicenote.wizard.SessionPhase
 import app.voicenote.wizard.TranscriptSpeaker
@@ -51,8 +53,10 @@ class MainActivity : Activity() {
     private lateinit var createTodoReadinessTextView: TextView
     private lateinit var createTodoBlockersTextView: TextView
     private lateinit var createTodoSummaryTextView: TextView
+    private lateinit var createTodoExecutionTextView: TextView
     private lateinit var confirmCreateTodoButton: Button
     private lateinit var unconfirmCreateTodoButton: Button
+    private lateinit var sendCreateTodoButton: Button
     private lateinit var statusTextView: TextView
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -123,8 +127,10 @@ class MainActivity : Activity() {
         createTodoReadinessTextView = findViewById(R.id.createTodoReadinessTextView)
         createTodoBlockersTextView = findViewById(R.id.createTodoBlockersTextView)
         createTodoSummaryTextView = findViewById(R.id.createTodoSummaryTextView)
+        createTodoExecutionTextView = findViewById(R.id.createTodoExecutionTextView)
         confirmCreateTodoButton = findViewById(R.id.confirmCreateTodoButton)
         unconfirmCreateTodoButton = findViewById(R.id.unconfirmCreateTodoButton)
+        sendCreateTodoButton = findViewById(R.id.sendCreateTodoButton)
         statusTextView = findViewById(R.id.statusTextView)
     }
 
@@ -158,6 +164,9 @@ class MainActivity : Activity() {
             jobTreadLookupRepository = ReadOnlyJobTreadLookupRepository(
                 configProvider = ::buildJobTreadLookupConfig,
             ),
+            jobTreadCreateTodoRepository = LiveJobTreadCreateTodoRepository(
+                configProvider = ::buildJobTreadLookupConfig,
+            ),
             assistantSpeaker = speaker,
         )
         voiceTurnController = VoiceTurnController(
@@ -184,6 +193,10 @@ class MainActivity : Activity() {
 
         unconfirmCreateTodoButton.setOnClickListener {
             updateCreateTodoConfirmation(confirmed = false)
+        }
+
+        sendCreateTodoButton.setOnClickListener {
+            executeCreateTodo()
         }
 
         startSessionButton.setOnClickListener {
@@ -323,6 +336,30 @@ class MainActivity : Activity() {
         renderState(store.load())
     }
 
+    private fun executeCreateTodo() {
+        statusNotice = null
+        val draft = store.load().displayDraft()
+        if (draft == null) {
+            renderState(store.load())
+            return
+        }
+
+        turnExecutor.execute {
+            try {
+                sessionLoopService.executeConfirmedCreateTodo(draft.id)
+            } catch (exception: Exception) {
+                runOnUiThread {
+                    statusNotice = getString(
+                        R.string.create_todo_send_failed,
+                        exception.message ?: exception::class.java.simpleName,
+                    )
+                    renderState(store.load())
+                }
+            }
+        }
+        renderState(store.load())
+    }
+
     private fun releaseVoiceRuntime() {
         try {
             voiceTurnController.cancel()
@@ -373,6 +410,12 @@ class MainActivity : Activity() {
             createTodo.readinessStatus == CreateTodoReadinessStatus.READY_FOR_CONFIRMATION &&
             !createTodo.isConfirmed
         unconfirmCreateTodoButton.isEnabled = !sessionBusy && createTodo?.isConfirmed == true
+        sendCreateTodoButton.isEnabled = !sessionBusy &&
+            createTodo != null &&
+            createTodo.readinessStatus == CreateTodoReadinessStatus.READY_FOR_CONFIRMATION &&
+            createTodo.isConfirmed &&
+            createTodo.execution.status != CreateTodoExecutionStatus.SENDING &&
+            createTodo.execution.status != CreateTodoExecutionStatus.SUCCESS
     }
 
     private fun renderActiveSession(inboxState: DraftInboxViewState) {
@@ -473,6 +516,7 @@ class MainActivity : Activity() {
             createTodoReadinessTextView.text = getString(R.string.empty_create_todo_readiness)
             createTodoBlockersTextView.text = getString(R.string.empty_create_todo_blockers)
             createTodoSummaryTextView.text = getString(R.string.empty_create_todo_summary)
+            createTodoExecutionTextView.text = getString(R.string.empty_create_todo_execution)
             return
         }
 
@@ -502,6 +546,26 @@ class MainActivity : Activity() {
                 summary.title,
             )
         } ?: getString(R.string.empty_create_todo_summary)
+        createTodoExecutionTextView.text = when (createTodo.execution.status) {
+            CreateTodoExecutionStatus.IDLE -> getString(R.string.empty_create_todo_execution)
+            CreateTodoExecutionStatus.SENDING -> getString(R.string.create_todo_sending)
+            CreateTodoExecutionStatus.SUCCESS -> createTodo.execution.createdTodo?.let { result ->
+                buildString {
+                    appendLine(getString(R.string.create_todo_success_header))
+                    appendLine(getString(R.string.create_todo_success_id, result.id))
+                    appendLine(getString(R.string.create_todo_success_title, result.title))
+                    appendLine(getString(R.string.create_todo_success_job, result.jobLabel))
+                    result.createdAtIso?.let { createdAt ->
+                        append(getString(R.string.create_todo_success_created_at, createdAt))
+                    }
+                }.trim()
+            } ?: getString(R.string.empty_create_todo_execution)
+
+            CreateTodoExecutionStatus.FAILURE -> getString(
+                R.string.create_todo_failure_format,
+                createTodo.execution.failureMessage ?: getString(R.string.create_todo_failure_unknown),
+            )
+        }
     }
 
     private fun buildDraftRow(

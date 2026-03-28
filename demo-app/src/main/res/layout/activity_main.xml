@@ -199,6 +199,13 @@
             android:layout_marginTop="8dp"
             android:text="@string/empty_create_todo_summary" />
 
+        <TextView
+            android:id="@+id/createTodoExecutionTextView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/empty_create_todo_execution" />
+
         <Button
             android:id="@+id/confirmCreateTodoButton"
             android:layout_width="match_parent"
@@ -212,6 +219,13 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:text="@string/unconfirm_create_todo" />
+
+        <Button
+            android:id="@+id/sendCreateTodoButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/send_create_todo" />
 
         <TextView
             android:layout_width="match_parent"

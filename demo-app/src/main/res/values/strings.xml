@@ -25,6 +25,7 @@
     <string name="empty_create_todo_readiness">No create_todo review signal yet.</string>
     <string name="empty_create_todo_blockers">No create_todo blockers yet.</string>
     <string name="empty_create_todo_summary">No local confirmation summary yet.</string>
+    <string name="empty_create_todo_execution">No create_todo send result yet.</string>
     <string name="missing_openai_api_key">OPENAI_API_KEY is missing. Rebuild the demo app with the key in your environment.</string>
     <string name="record_audio_permission_denied">Microphone permission is required for the spoken turn demo.</string>
     <string name="session_created_resume_when_ready">Session created. Resume the voice loop when microphone access is ready.</string>
@@ -59,6 +60,8 @@
     <string name="saved_jobtread_default_organization">Default organization: %1$s</string>
     <string name="confirm_create_todo">Confirm create_todo</string>
     <string name="unconfirm_create_todo">Clear Confirmation</string>
+    <string name="send_create_todo">Send create_todo to JobTread</string>
+    <string name="create_todo_send_failed">create_todo send failed: %1$s</string>
     <string name="create_todo_state">%1$s%2$s</string>
     <string name="create_todo_confirmed_suffix"> (confirmed locally)</string>
     <string name="create_todo_blockers_prefix">Blockers:
@@ -66,6 +69,14 @@
     <string name="create_todo_summary_format">Organization: %1$s
 Job: %2$s
 Title: %3$s</string>
+    <string name="create_todo_sending">Sending create_todo to JobTread...</string>
+    <string name="create_todo_success_header">JobTread create_todo succeeded.</string>
+    <string name="create_todo_success_id">Created To-Do ID: %1$s</string>
+    <string name="create_todo_success_title">Title: %1$s</string>
+    <string name="create_todo_success_job">Job: %1$s</string>
+    <string name="create_todo_success_created_at">Created at: %1$s</string>
+    <string name="create_todo_failure_format">JobTread create_todo failed: %1$s</string>
+    <string name="create_todo_failure_unknown">Unknown JobTread error.</string>
     <string name="transcript_user_prefix">User:</string>
     <string name="transcript_assistant_prefix">Assistant:</string>
 </resources>

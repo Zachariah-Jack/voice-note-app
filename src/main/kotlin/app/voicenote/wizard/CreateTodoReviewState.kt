@@ -10,6 +10,7 @@ data class CreateTodoDraftState(
     val blockers: List<CreateTodoBlocker> = emptyList(),
     val confirmationSummary: CreateTodoConfirmationSummary? = null,
     val isConfirmed: Boolean = false,
+    val execution: CreateTodoExecutionState = CreateTodoExecutionState(),
     val updatedAtEpochMillis: Long = 0L,
 )
 
@@ -28,11 +29,39 @@ data class CreateTodoConfirmationSummary(
     val title: String,
 )
 
+@Serializable
+data class CreateTodoExecutionState(
+    val status: CreateTodoExecutionStatus = CreateTodoExecutionStatus.IDLE,
+    val requestSummary: CreateTodoConfirmationSummary? = null,
+    val createdTodo: JobTreadCreatedTodo? = null,
+    val failureMessage: String? = null,
+    val updatedAtEpochMillis: Long = 0L,
+)
+
+@Serializable
+data class JobTreadCreatedTodo(
+    val id: String,
+    val title: String,
+    val organizationId: String,
+    val organizationName: String,
+    val jobId: String,
+    val jobLabel: String,
+    val targetType: String,
+    val createdAtIso: String? = null,
+)
+
 enum class CreateTodoReadinessStatus {
     NOT_READY,
     BLOCKED,
     REVIEWABLE,
     READY_FOR_CONFIRMATION,
+}
+
+enum class CreateTodoExecutionStatus {
+    IDLE,
+    SENDING,
+    SUCCESS,
+    FAILURE,
 }
 
 enum class CreateTodoBlockerCode {
@@ -94,6 +123,12 @@ object CreateTodoReviewStateCalculator {
             blockers = blockers,
             confirmationSummary = summary,
             isConfirmed = shouldRemainConfirmed,
+            execution = reconcileExecution(
+                currentExecution = currentState.execution,
+                currentSummary = summary,
+                readinessStatus = readinessStatus,
+                nowEpochMillis = nowEpochMillis,
+            ),
             updatedAtEpochMillis = nowEpochMillis,
         )
 
@@ -216,5 +251,22 @@ object CreateTodoReviewStateCalculator {
             jobLabel = resolvedJob.displayLabel(),
             title = title,
         )
+    }
+
+    private fun reconcileExecution(
+        currentExecution: CreateTodoExecutionState,
+        currentSummary: CreateTodoConfirmationSummary?,
+        readinessStatus: CreateTodoReadinessStatus,
+        nowEpochMillis: Long,
+    ): CreateTodoExecutionState {
+        val effectiveSummary = currentSummary
+            ?.takeIf { readinessStatus == CreateTodoReadinessStatus.READY_FOR_CONFIRMATION }
+        return if (effectiveSummary != null && currentExecution.requestSummary == effectiveSummary) {
+            currentExecution
+        } else if (currentExecution == CreateTodoExecutionState()) {
+            currentExecution
+        } else {
+            CreateTodoExecutionState(updatedAtEpochMillis = nowEpochMillis)
+        }
     }
 }
