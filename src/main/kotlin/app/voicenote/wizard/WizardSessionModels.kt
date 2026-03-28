@@ -45,6 +45,7 @@ data class SessionState(
     val draftId: String? = null,
     val phase: SessionPhase = SessionPhase.IDLE,
     val assistantSpeech: AssistantSpeechState = AssistantSpeechState(),
+    val speechRecognition: SpeechRecognitionState = SpeechRecognitionState(),
     val updatedAtEpochMillis: Long = 0L,
 )
 
@@ -55,6 +56,15 @@ data class AssistantSpeechState(
     val nextPhase: SessionPhase = SessionPhase.AWAITING_USER_TURN,
     val errorCode: Int? = null,
     val errorMessage: String? = null,
+)
+
+@Serializable
+data class SpeechRecognitionState(
+    val status: SpeechRecognitionStatus = SpeechRecognitionStatus.IDLE,
+    val partialTranscript: String? = null,
+    val finalTranscript: String? = null,
+    val errorType: SpeechRecognitionEventType? = null,
+    val errorCode: Int? = null,
 )
 
 data class SessionSnapshot(
@@ -75,6 +85,7 @@ enum class TranscriptSpeaker {
 enum class SessionPhase {
     IDLE,
     AWAITING_USER_TURN,
+    LISTENING_USER,
     RUNNING_WIZARD_TURN,
     SPEAKING_ASSISTANT,
 }
@@ -85,5 +96,18 @@ enum class AssistantSpeechStatus {
     SPEAKING,
     STOPPING,
     STOPPED,
+    ERROR,
+}
+
+enum class SpeechRecognitionStatus {
+    IDLE,
+    LISTENING,
+    FINAL_RECEIVED,
+    STOPPED,
+    CANCELLED,
+    NO_MATCH,
+    TIMEOUT,
+    BUSY,
+    PERMISSION_NEEDED,
     ERROR,
 }

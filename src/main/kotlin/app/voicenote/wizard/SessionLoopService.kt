@@ -7,8 +7,15 @@ class SessionLoopService(
     private val idGenerator: IdGenerator = UuidIdGenerator,
     private val clock: EpochClock = SystemEpochClock,
 ) {
+    private var assistantSpeakerEventObserver: ((AssistantSpeakerEvent) -> Unit)? = null
+
     init {
         assistantSpeaker?.setEventListener(AssistantSpeakerEventListener(::handleAssistantSpeakerEvent))
+    }
+
+    @Synchronized
+    fun setAssistantSpeakerEventObserver(observer: ((AssistantSpeakerEvent) -> Unit)?) {
+        assistantSpeakerEventObserver = observer
     }
 
     @Synchronized
@@ -56,7 +63,10 @@ class SessionLoopService(
         val existingState = store.load()
         val activeDraftId = existingState.session.draftId
             ?: error("No active draft to append a turn to.")
-        check(existingState.session.phase == SessionPhase.AWAITING_USER_TURN) {
+        check(
+            existingState.session.phase == SessionPhase.AWAITING_USER_TURN ||
+                existingState.session.phase == SessionPhase.LISTENING_USER,
+        ) {
             "Session is not ready for a user turn."
         }
 
@@ -72,6 +82,7 @@ class SessionLoopService(
         val generatingSession = existingState.session.copy(
             draftId = draft.id,
             phase = SessionPhase.RUNNING_WIZARD_TURN,
+            speechRecognition = SpeechRecognitionState(),
             updatedAtEpochMillis = userTurnTime,
         )
         val stateAfterUserTurn = existingState
@@ -236,6 +247,7 @@ class SessionLoopService(
                 )
             }
             store.save(currentState.copy(session = updatedSession))
+            assistantSpeakerEventObserver?.invoke(event)
         }
     }
 
@@ -283,11 +295,11 @@ private fun SessionState.clearAssistantSpeech(updatedAtEpochMillis: Long): Sessi
     } else {
         copy(
             phase = if (phase == SessionPhase.SPEAKING_ASSISTANT) {
-                assistantSpeech.nextPhase
-            } else {
-                phase
-            },
-            assistantSpeech = AssistantSpeechState(),
-            updatedAtEpochMillis = updatedAtEpochMillis,
-        )
+            assistantSpeech.nextPhase
+        } else {
+            phase
+        },
+        assistantSpeech = AssistantSpeechState(),
+        updatedAtEpochMillis = updatedAtEpochMillis,
+    )
     }
