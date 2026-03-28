@@ -8,3 +8,4 @@ pluginManagement {
 
 rootProject.name = "voice-note-app"
 include(":android-tts")
+include(":android-speech")
