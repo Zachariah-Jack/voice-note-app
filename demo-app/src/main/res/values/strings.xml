@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Voice Note Demo</string>
+    <string name="start_voice_chat">Start Voice Chat</string>
+    <string name="resume_voice_chat">Resume Voice Chat</string>
+    <string name="end_voice_chat">End Voice Chat</string>
+    <string name="show_dev_info">Show Dev Info</string>
+    <string name="hide_dev_info">Hide Dev Info</string>
     <string name="inbox_label">Draft inbox</string>
     <string name="new_session">Start New Session</string>
     <string name="active_session_section_label">Active or recoverable session</string>
@@ -37,7 +42,7 @@
     <string name="start_session_failed">Start session failed: %1$s</string>
     <string name="active_session_label">Active session</string>
     <string name="recoverable_paused_session_label">Recoverable paused session</string>
-    <string name="active_session_summary">%1$s • %2$s • %3$d turns</string>
+    <string name="active_session_summary">%1$s | %2$s | %3$d turns</string>
     <string name="active_session_snippet">Last: %1$s</string>
     <string name="draft_updated_time">Updated %1$s</string>
     <string name="draft_snippet">Last: %1$s</string>

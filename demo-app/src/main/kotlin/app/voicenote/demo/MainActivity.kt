@@ -36,13 +36,14 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
 class MainActivity : Activity() {
-    private lateinit var newSessionButton: Button
+    private lateinit var primarySessionButton: Button
+    private lateinit var mainNoticeTextView: TextView
+    private lateinit var devInfoToggleButton: Button
+    private lateinit var devInfoContainer: LinearLayout
     private lateinit var activeSessionContainer: LinearLayout
     private lateinit var activeSessionTextView: TextView
     private lateinit var draftListContainer: LinearLayout
     private lateinit var emptyDraftsTextView: TextView
-    private lateinit var startSessionButton: Button
-    private lateinit var stopSessionButton: Button
     private lateinit var assistantMessageTextView: TextView
     private lateinit var partialTranscriptTextView: TextView
     private lateinit var finalTranscriptTextView: TextView
@@ -70,7 +71,9 @@ class MainActivity : Activity() {
     private lateinit var voiceTurnController: VoiceTurnController
 
     private var statusNotice: String? = null
+    private var statusNoticeIsCritical = false
     private var pendingResumeAfterPermission = false
+    private var isDevInfoExpanded = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -98,7 +101,7 @@ class MainActivity : Activity() {
         }
 
         pendingResumeAfterPermission = false
-        statusNotice = getString(R.string.record_audio_permission_denied)
+        setStatusNotice(getString(R.string.record_audio_permission_denied), isCritical = true)
         renderState(store.load())
     }
 
@@ -110,13 +113,14 @@ class MainActivity : Activity() {
     }
 
     private fun bindViews() {
-        newSessionButton = findViewById(R.id.newSessionButton)
+        primarySessionButton = findViewById(R.id.primarySessionButton)
+        mainNoticeTextView = findViewById(R.id.mainNoticeTextView)
+        devInfoToggleButton = findViewById(R.id.devInfoToggleButton)
+        devInfoContainer = findViewById(R.id.devInfoContainer)
         activeSessionContainer = findViewById(R.id.activeSessionContainer)
         activeSessionTextView = findViewById(R.id.activeSessionTextView)
         draftListContainer = findViewById(R.id.draftListContainer)
         emptyDraftsTextView = findViewById(R.id.emptyDraftsTextView)
-        startSessionButton = findViewById(R.id.startSessionButton)
-        stopSessionButton = findViewById(R.id.stopSessionButton)
         assistantMessageTextView = findViewById(R.id.assistantMessageTextView)
         partialTranscriptTextView = findViewById(R.id.partialTranscriptTextView)
         finalTranscriptTextView = findViewById(R.id.finalTranscriptTextView)
@@ -179,8 +183,13 @@ class MainActivity : Activity() {
     }
 
     private fun bindActions() {
-        newSessionButton.setOnClickListener {
-            startNewSessionFromInbox()
+        primarySessionButton.setOnClickListener {
+            handlePrimarySessionAction()
+        }
+
+        devInfoToggleButton.setOnClickListener {
+            isDevInfoExpanded = !isDevInfoExpanded
+            renderState(store.load())
         }
 
         refreshJobTreadOrganizationsButton.setOnClickListener {
@@ -198,36 +207,31 @@ class MainActivity : Activity() {
         sendCreateTodoButton.setOnClickListener {
             executeCreateTodo()
         }
-
-        startSessionButton.setOnClickListener {
-            resumeActiveVoiceSession()
-        }
-
-        stopSessionButton.setOnClickListener {
-            pendingResumeAfterPermission = false
-            statusNotice = null
-            voiceTurnController.cancel()
-            renderState(store.load())
-        }
     }
 
     private fun startNewSessionFromInbox() {
         pendingResumeAfterPermission = false
-        statusNotice = null
+        clearStatusNotice()
         try {
             if (isOpenAiConfigured() && hasRecordAudioPermission()) {
                 voiceTurnController.startSession(initialAssistantMessage)
             } else {
                 sessionLoopService.startNewSession()
-                statusNotice = when {
-                    !isOpenAiConfigured() -> getString(R.string.missing_openai_api_key)
-                    else -> getString(R.string.session_created_resume_when_ready)
-                }
+                setStatusNotice(
+                    message = when {
+                        !isOpenAiConfigured() -> getString(R.string.missing_openai_api_key)
+                        else -> getString(R.string.session_created_resume_when_ready)
+                    },
+                    isCritical = true,
+                )
             }
         } catch (exception: Exception) {
-            statusNotice = getString(
-                R.string.start_session_failed,
-                exception.message ?: exception::class.java.simpleName,
+            setStatusNotice(
+                message = getString(
+                    R.string.start_session_failed,
+                    exception.message ?: exception::class.java.simpleName,
+                ),
+                isCritical = true,
             )
         }
         renderState(store.load())
@@ -235,23 +239,28 @@ class MainActivity : Activity() {
 
     private fun resumeSelectedDraft(draftId: String) {
         pendingResumeAfterPermission = false
-        statusNotice = null
+        clearStatusNotice()
         try {
             val resumed = sessionLoopService.resumeDraft(draftId)
             if (resumed == null) {
-                statusNotice = getString(R.string.resume_draft_failed)
+                setStatusNotice(getString(R.string.resume_draft_failed))
             } else if (isOpenAiConfigured() && hasRecordAudioPermission()) {
                 voiceTurnController.resumeSession()
             } else {
-                statusNotice = when {
-                    !isOpenAiConfigured() -> getString(R.string.missing_openai_api_key)
-                    else -> getString(R.string.draft_selected_resume_when_ready)
-                }
+                setStatusNotice(
+                    message = when {
+                        !isOpenAiConfigured() -> getString(R.string.missing_openai_api_key)
+                        else -> getString(R.string.draft_selected_resume_when_ready)
+                    },
+                    isCritical = true,
+                )
             }
         } catch (exception: Exception) {
-            statusNotice = getString(
-                R.string.resume_draft_failed_with_reason,
-                exception.message ?: exception::class.java.simpleName,
+            setStatusNotice(
+                getString(
+                    R.string.resume_draft_failed_with_reason,
+                    exception.message ?: exception::class.java.simpleName,
+                ),
             )
         }
         renderState(store.load())
@@ -259,15 +268,15 @@ class MainActivity : Activity() {
 
     private fun resumeActiveVoiceSession() {
         pendingResumeAfterPermission = false
-        statusNotice = null
+        clearStatusNotice()
         val state = store.load()
         if (state.session.draftId == null) {
-            statusNotice = getString(R.string.no_active_session)
+            setStatusNotice(getString(R.string.no_active_session))
             renderState(state)
             return
         }
         if (!isOpenAiConfigured()) {
-            statusNotice = getString(R.string.missing_openai_api_key)
+            setStatusNotice(getString(R.string.missing_openai_api_key), isCritical = true)
             renderState(state)
             return
         }
@@ -281,42 +290,49 @@ class MainActivity : Activity() {
         try {
             voiceTurnController.resumeSession()
         } catch (exception: Exception) {
-            statusNotice = getString(
-                R.string.start_session_failed,
-                exception.message ?: exception::class.java.simpleName,
+            setStatusNotice(
+                message = getString(
+                    R.string.start_session_failed,
+                    exception.message ?: exception::class.java.simpleName,
+                ),
+                isCritical = true,
             )
         }
         renderState(store.load())
     }
 
     private fun refreshJobTreadOrganizations() {
-        statusNotice = null
+        clearStatusNotice()
         try {
             sessionLoopService.refreshJobTreadOrganizations()
         } catch (exception: Exception) {
-            statusNotice = getString(
-                R.string.start_session_failed,
-                exception.message ?: exception::class.java.simpleName,
+            setStatusNotice(
+                getString(
+                    R.string.start_session_failed,
+                    exception.message ?: exception::class.java.simpleName,
+                ),
             )
         }
         renderState(store.load())
     }
 
     private fun saveDefaultJobTreadOrganization(organizationId: String) {
-        statusNotice = null
+        clearStatusNotice()
         try {
             sessionLoopService.saveDefaultJobTreadOrganization(organizationId)
         } catch (exception: Exception) {
-            statusNotice = getString(
-                R.string.start_session_failed,
-                exception.message ?: exception::class.java.simpleName,
+            setStatusNotice(
+                getString(
+                    R.string.start_session_failed,
+                    exception.message ?: exception::class.java.simpleName,
+                ),
             )
         }
         renderState(store.load())
     }
 
     private fun updateCreateTodoConfirmation(confirmed: Boolean) {
-        statusNotice = null
+        clearStatusNotice()
         val draft = store.load().displayDraft()
         if (draft == null) {
             renderState(store.load())
@@ -328,16 +344,18 @@ class MainActivity : Activity() {
                 confirmed = confirmed,
             )
         } catch (exception: Exception) {
-            statusNotice = getString(
-                R.string.start_session_failed,
-                exception.message ?: exception::class.java.simpleName,
+            setStatusNotice(
+                getString(
+                    R.string.start_session_failed,
+                    exception.message ?: exception::class.java.simpleName,
+                ),
             )
         }
         renderState(store.load())
     }
 
     private fun executeCreateTodo() {
-        statusNotice = null
+        clearStatusNotice()
         val draft = store.load().displayDraft()
         if (draft == null) {
             renderState(store.load())
@@ -349,15 +367,34 @@ class MainActivity : Activity() {
                 sessionLoopService.executeConfirmedCreateTodo(draft.id)
             } catch (exception: Exception) {
                 runOnUiThread {
-                    statusNotice = getString(
-                        R.string.create_todo_send_failed,
-                        exception.message ?: exception::class.java.simpleName,
+                    setStatusNotice(
+                        getString(
+                            R.string.create_todo_send_failed,
+                            exception.message ?: exception::class.java.simpleName,
+                        ),
                     )
                     renderState(store.load())
                 }
             }
         }
         renderState(store.load())
+    }
+
+    private fun handlePrimarySessionAction() {
+        val state = store.load()
+        if (state.session.phase in activeSessionPhases) {
+            pendingResumeAfterPermission = false
+            clearStatusNotice()
+            voiceTurnController.cancel()
+            renderState(store.load())
+            return
+        }
+
+        if (state.session.draftId != null) {
+            resumeActiveVoiceSession()
+        } else {
+            startNewSessionFromInbox()
+        }
     }
 
     private fun releaseVoiceRuntime() {
@@ -399,12 +436,19 @@ class MainActivity : Activity() {
             ?: getString(R.string.empty_jobtread_lookup)
         renderCreateTodoReview(draft)
         statusTextView.text = buildStatusText(state)
+        renderPrimarySessionButton(state)
+        renderMainNotice()
+        devInfoContainer.visibility = if (isDevInfoExpanded) View.VISIBLE else View.GONE
+        devInfoToggleButton.text = getString(
+            if (isDevInfoExpanded) {
+                R.string.hide_dev_info
+            } else {
+                R.string.show_dev_info
+            },
+        )
 
         val sessionBusy = state.session.phase in activeSessionPhases
-        newSessionButton.isEnabled = !sessionBusy
         refreshJobTreadOrganizationsButton.isEnabled = !sessionBusy
-        startSessionButton.isEnabled = state.session.draftId != null && !sessionBusy
-        stopSessionButton.isEnabled = state.session.draftId != null || state.session.phase != SessionPhase.IDLE
         confirmCreateTodoButton.isEnabled = !sessionBusy &&
             createTodo != null &&
             createTodo.readinessStatus == CreateTodoReadinessStatus.READY_FOR_CONFIRMATION &&
@@ -416,6 +460,24 @@ class MainActivity : Activity() {
             createTodo.isConfirmed &&
             createTodo.execution.status != CreateTodoExecutionStatus.SENDING &&
             createTodo.execution.status != CreateTodoExecutionStatus.SUCCESS
+    }
+
+    private fun renderPrimarySessionButton(state: WizardAppState) {
+        primarySessionButton.text = when {
+            state.session.phase in activeSessionPhases -> getString(R.string.end_voice_chat)
+            state.session.draftId != null -> getString(R.string.resume_voice_chat)
+            else -> getString(R.string.start_voice_chat)
+        }
+    }
+
+    private fun renderMainNotice() {
+        if (statusNoticeIsCritical && !statusNotice.isNullOrBlank()) {
+            mainNoticeTextView.visibility = View.VISIBLE
+            mainNoticeTextView.text = statusNotice
+        } else {
+            mainNoticeTextView.visibility = View.GONE
+            mainNoticeTextView.text = ""
+        }
     }
 
     private fun renderActiveSession(inboxState: DraftInboxViewState) {
@@ -624,7 +686,7 @@ class MainActivity : Activity() {
         if (item.isActive) {
             segments += getString(R.string.draft_active_marker)
         }
-        return segments.joinToString(separator = " • ")
+        return segments.joinToString(separator = " | ")
     }
 
     private fun buildStatusText(state: WizardAppState): String {
@@ -663,6 +725,19 @@ class MainActivity : Activity() {
             lines += getString(R.string.status_jobtread_not_configured)
         }
         return lines.joinToString(separator = "\n")
+    }
+
+    private fun clearStatusNotice() {
+        statusNotice = null
+        statusNoticeIsCritical = false
+    }
+
+    private fun setStatusNotice(
+        message: String,
+        isCritical: Boolean = false,
+    ) {
+        statusNotice = message
+        statusNoticeIsCritical = isCritical
     }
 
     private fun hasRecordAudioPermission(): Boolean =

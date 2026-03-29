@@ -9,21 +9,39 @@
         android:orientation="vertical"
         android:padding="16dp">
 
-        <TextView
+        <Button
+            android:id="@+id/primarySessionButton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="@string/inbox_label"
-            android:textStyle="bold" />
+            android:minHeight="72dp"
+            android:text="@string/start_voice_chat"
+            android:textAllCaps="false"
+            android:textSize="20sp" />
+
+        <TextView
+            android:id="@+id/mainNoticeTextView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/status_initial"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/assistantMessageTextView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/empty_assistant_message" />
 
         <Button
-            android:id="@+id/newSessionButton"
+            android:id="@+id/devInfoToggleButton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="@string/new_session" />
+            android:layout_marginTop="12dp"
+            android:text="@string/show_dev_info" />
 
         <LinearLayout
-            android:id="@+id/activeSessionContainer"
+            android:id="@+id/devInfoContainer"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
@@ -36,209 +54,182 @@
                 android:text="@string/active_session_section_label"
                 android:textStyle="bold" />
 
-            <TextView
-                android:id="@+id/activeSessionTextView"
+            <LinearLayout
+                android:id="@+id/activeSessionContainer"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:text="@string/no_active_session" />
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/activeSessionTextView"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/no_active_session" />
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="@string/drafts_label"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/emptyDraftsTextView"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="@string/empty_drafts" />
+
+            <LinearLayout
+                android:id="@+id/draftListContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:orientation="vertical" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="@string/partial_transcript_label"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/partialTranscriptTextView"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="@string/empty_partial_transcript" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="@string/final_transcript_label"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/finalTranscriptTextView"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="@string/empty_committed_transcript"
+                android:typeface="monospace" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="@string/jobtread_organization_label"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/jobTreadOrganizationTextView"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="@string/empty_jobtread_organization" />
+
+            <Button
+                android:id="@+id/refreshJobTreadOrganizationsButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/refresh_jobtread_organizations" />
+
+            <LinearLayout
+                android:id="@+id/jobTreadOrganizationOptionsContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:orientation="vertical" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="@string/jobtread_lookup_label"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/jobTreadLookupTextView"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="@string/empty_jobtread_lookup" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="@string/create_todo_review_label"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/createTodoReadinessTextView"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="@string/empty_create_todo_readiness" />
+
+            <TextView
+                android:id="@+id/createTodoBlockersTextView"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/empty_create_todo_blockers" />
+
+            <TextView
+                android:id="@+id/createTodoSummaryTextView"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/empty_create_todo_summary" />
+
+            <TextView
+                android:id="@+id/createTodoExecutionTextView"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/empty_create_todo_execution" />
+
+            <Button
+                android:id="@+id/confirmCreateTodoButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/confirm_create_todo" />
+
+            <Button
+                android:id="@+id/unconfirmCreateTodoButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/unconfirm_create_todo" />
+
+            <Button
+                android:id="@+id/sendCreateTodoButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/send_create_todo" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="@string/status_label"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/statusTextView"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="@string/status_initial" />
         </LinearLayout>
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="@string/drafts_label"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/emptyDraftsTextView"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="@string/empty_drafts" />
-
-        <LinearLayout
-            android:id="@+id/draftListContainer"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:orientation="vertical" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
-            android:text="@string/voice_session_label"
-            android:textStyle="bold" />
-
-        <Button
-            android:id="@+id/startSessionButton"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="@string/resume_active_session" />
-
-        <Button
-            android:id="@+id/stopSessionButton"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="@string/stop_session" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="@string/assistant_message_label"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/assistantMessageTextView"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="@string/empty_assistant_message" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="@string/partial_transcript_label"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/partialTranscriptTextView"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="@string/empty_partial_transcript" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="@string/final_transcript_label"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/finalTranscriptTextView"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="@string/empty_committed_transcript"
-            android:typeface="monospace" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="@string/jobtread_organization_label"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/jobTreadOrganizationTextView"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="@string/empty_jobtread_organization" />
-
-        <Button
-            android:id="@+id/refreshJobTreadOrganizationsButton"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="@string/refresh_jobtread_organizations" />
-
-        <LinearLayout
-            android:id="@+id/jobTreadOrganizationOptionsContainer"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:orientation="vertical" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="@string/jobtread_lookup_label"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/jobTreadLookupTextView"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="@string/empty_jobtread_lookup" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="@string/create_todo_review_label"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/createTodoReadinessTextView"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="@string/empty_create_todo_readiness" />
-
-        <TextView
-            android:id="@+id/createTodoBlockersTextView"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="@string/empty_create_todo_blockers" />
-
-        <TextView
-            android:id="@+id/createTodoSummaryTextView"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="@string/empty_create_todo_summary" />
-
-        <TextView
-            android:id="@+id/createTodoExecutionTextView"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="@string/empty_create_todo_execution" />
-
-        <Button
-            android:id="@+id/confirmCreateTodoButton"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="@string/confirm_create_todo" />
-
-        <Button
-            android:id="@+id/unconfirmCreateTodoButton"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="@string/unconfirm_create_todo" />
-
-        <Button
-            android:id="@+id/sendCreateTodoButton"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="@string/send_create_todo" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="@string/status_label"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/statusTextView"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="@string/status_initial" />
     </LinearLayout>
 </ScrollView>
