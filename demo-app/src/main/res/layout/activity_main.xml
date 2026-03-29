@@ -18,21 +18,6 @@
             android:textAllCaps="false"
             android:textSize="20sp" />
 
-        <TextView
-            android:id="@+id/mainNoticeTextView"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="@string/status_initial"
-            android:visibility="gone" />
-
-        <TextView
-            android:id="@+id/assistantMessageTextView"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="@string/empty_assistant_message" />
-
         <Button
             android:id="@+id/devInfoToggleButton"
             android:layout_width="match_parent"
@@ -89,6 +74,20 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
                 android:orientation="vertical" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="@string/assistant_message_label"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/assistantMessageTextView"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="@string/empty_assistant_message" />
 
             <TextView
                 android:layout_width="match_parent"

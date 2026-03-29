@@ -37,7 +37,6 @@ import java.util.concurrent.Executors
 
 class MainActivity : Activity() {
     private lateinit var primarySessionButton: Button
-    private lateinit var mainNoticeTextView: TextView
     private lateinit var devInfoToggleButton: Button
     private lateinit var devInfoContainer: LinearLayout
     private lateinit var activeSessionContainer: LinearLayout
@@ -71,7 +70,6 @@ class MainActivity : Activity() {
     private lateinit var voiceTurnController: VoiceTurnController
 
     private var statusNotice: String? = null
-    private var statusNoticeIsCritical = false
     private var pendingResumeAfterPermission = false
     private var isDevInfoExpanded = false
 
@@ -114,7 +112,6 @@ class MainActivity : Activity() {
 
     private fun bindViews() {
         primarySessionButton = findViewById(R.id.primarySessionButton)
-        mainNoticeTextView = findViewById(R.id.mainNoticeTextView)
         devInfoToggleButton = findViewById(R.id.devInfoToggleButton)
         devInfoContainer = findViewById(R.id.devInfoContainer)
         activeSessionContainer = findViewById(R.id.activeSessionContainer)
@@ -437,7 +434,6 @@ class MainActivity : Activity() {
         renderCreateTodoReview(draft)
         statusTextView.text = buildStatusText(state)
         renderPrimarySessionButton(state)
-        renderMainNotice()
         devInfoContainer.visibility = if (isDevInfoExpanded) View.VISIBLE else View.GONE
         devInfoToggleButton.text = getString(
             if (isDevInfoExpanded) {
@@ -467,16 +463,6 @@ class MainActivity : Activity() {
             state.session.phase in activeSessionPhases -> getString(R.string.end_voice_chat)
             state.session.draftId != null -> getString(R.string.resume_voice_chat)
             else -> getString(R.string.start_voice_chat)
-        }
-    }
-
-    private fun renderMainNotice() {
-        if (statusNoticeIsCritical && !statusNotice.isNullOrBlank()) {
-            mainNoticeTextView.visibility = View.VISIBLE
-            mainNoticeTextView.text = statusNotice
-        } else {
-            mainNoticeTextView.visibility = View.GONE
-            mainNoticeTextView.text = ""
         }
     }
 
@@ -729,7 +715,6 @@ class MainActivity : Activity() {
 
     private fun clearStatusNotice() {
         statusNotice = null
-        statusNoticeIsCritical = false
     }
 
     private fun setStatusNotice(
@@ -737,7 +722,9 @@ class MainActivity : Activity() {
         isCritical: Boolean = false,
     ) {
         statusNotice = message
-        statusNoticeIsCritical = isCritical
+        if (isCritical) {
+            // Notices now render in Dev Info only, but callers still distinguish critical cases.
+        }
     }
 
     private fun hasRecordAudioPermission(): Boolean =
