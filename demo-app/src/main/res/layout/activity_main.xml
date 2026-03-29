@@ -18,18 +18,10 @@
             android:textAllCaps="false"
             android:textSize="20sp" />
 
-        <Button
-            android:id="@+id/devInfoToggleButton"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="@string/show_dev_info" />
-
         <LinearLayout
             android:id="@+id/devInfoContainer"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
             android:orientation="vertical"
             android:visibility="gone">
 

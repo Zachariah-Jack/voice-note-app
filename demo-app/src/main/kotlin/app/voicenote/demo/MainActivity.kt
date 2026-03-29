@@ -37,7 +37,6 @@ import java.util.concurrent.Executors
 
 class MainActivity : Activity() {
     private lateinit var primarySessionButton: Button
-    private lateinit var devInfoToggleButton: Button
     private lateinit var devInfoContainer: LinearLayout
     private lateinit var activeSessionContainer: LinearLayout
     private lateinit var activeSessionTextView: TextView
@@ -71,7 +70,6 @@ class MainActivity : Activity() {
 
     private var statusNotice: String? = null
     private var pendingResumeAfterPermission = false
-    private var isDevInfoExpanded = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -112,7 +110,6 @@ class MainActivity : Activity() {
 
     private fun bindViews() {
         primarySessionButton = findViewById(R.id.primarySessionButton)
-        devInfoToggleButton = findViewById(R.id.devInfoToggleButton)
         devInfoContainer = findViewById(R.id.devInfoContainer)
         activeSessionContainer = findViewById(R.id.activeSessionContainer)
         activeSessionTextView = findViewById(R.id.activeSessionTextView)
@@ -182,11 +179,6 @@ class MainActivity : Activity() {
     private fun bindActions() {
         primarySessionButton.setOnClickListener {
             handlePrimarySessionAction()
-        }
-
-        devInfoToggleButton.setOnClickListener {
-            isDevInfoExpanded = !isDevInfoExpanded
-            renderState(store.load())
         }
 
         refreshJobTreadOrganizationsButton.setOnClickListener {
@@ -434,14 +426,7 @@ class MainActivity : Activity() {
         renderCreateTodoReview(draft)
         statusTextView.text = buildStatusText(state)
         renderPrimarySessionButton(state)
-        devInfoContainer.visibility = if (isDevInfoExpanded) View.VISIBLE else View.GONE
-        devInfoToggleButton.text = getString(
-            if (isDevInfoExpanded) {
-                R.string.hide_dev_info
-            } else {
-                R.string.show_dev_info
-            },
-        )
+        devInfoContainer.visibility = View.GONE
 
         val sessionBusy = state.session.phase in activeSessionPhases
         refreshJobTreadOrganizationsButton.isEnabled = !sessionBusy
