@@ -3,8 +3,8 @@
     <string name="app_name">Voice Note Demo</string>
     <string name="start_voice_chat">Start Voice Chat</string>
     <string name="resume_voice_chat">Resume Voice Chat</string>
-    <string name="end_voice_chat">End Voice Chat</string>
-    <string name="show_dev_info">Show Dev Info</string>
+    <string name="end_voice_chat">Stop / End Session</string>
+    <string name="show_dev_info">Dev Info</string>
     <string name="hide_dev_info">Hide Dev Info</string>
     <string name="inbox_label">Draft inbox</string>
     <string name="new_session">Start New Session</string>

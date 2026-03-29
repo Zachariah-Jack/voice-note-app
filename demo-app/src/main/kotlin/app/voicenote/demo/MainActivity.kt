@@ -461,7 +461,6 @@ class MainActivity : Activity() {
     private fun renderPrimarySessionButton(state: WizardAppState) {
         primarySessionButton.text = when {
             state.session.phase in activeSessionPhases -> getString(R.string.end_voice_chat)
-            state.session.draftId != null -> getString(R.string.resume_voice_chat)
             else -> getString(R.string.start_voice_chat)
         }
     }
