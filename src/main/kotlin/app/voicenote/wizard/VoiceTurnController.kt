@@ -9,6 +9,7 @@ class VoiceTurnController(
     private val clock: EpochClock = SystemEpochClock,
     private val eventExecutor: Executor = DirectExecutor,
     private val turnExecutor: Executor = DirectExecutor,
+    private val onTurnFailure: ((Exception) -> Unit)? = null,
 ) {
     private val lock = Any()
     private var continuousLoopEnabled = false
@@ -196,7 +197,7 @@ class VoiceTurnController(
                 turnExecutor.execute {
                     try {
                         sessionLoopService.submitUserTurn(transcript)
-                    } catch (_: Exception) {
+                    } catch (exception: Exception) {
                         synchronized(lock) {
                             continuousLoopEnabled = false
                         }
@@ -210,6 +211,7 @@ class VoiceTurnController(
                                 updatedAtEpochMillis = clock.nowEpochMillis(),
                             )
                         }
+                        onTurnFailure?.invoke(exception)
                     }
                 }
             }

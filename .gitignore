@@ -1,3 +1,4 @@
 /.gradle/
 /.tools/
 **/build/
+/local.properties

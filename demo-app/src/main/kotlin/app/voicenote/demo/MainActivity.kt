@@ -11,6 +11,7 @@ import android.view.View
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import app.voicenote.android.speech.AndroidSpeechRecognizerGateway
 import app.voicenote.android.tts.AndroidTextToSpeechAssistantSpeaker
 import app.voicenote.wizard.CreateTodoExecutionStatus
@@ -37,26 +38,27 @@ import java.util.concurrent.Executors
 
 class MainActivity : Activity() {
     private lateinit var primarySessionButton: Button
-    private lateinit var devInfoContainer: LinearLayout
-    private lateinit var activeSessionContainer: LinearLayout
-    private lateinit var activeSessionTextView: TextView
-    private lateinit var draftListContainer: LinearLayout
-    private lateinit var emptyDraftsTextView: TextView
-    private lateinit var assistantMessageTextView: TextView
-    private lateinit var partialTranscriptTextView: TextView
-    private lateinit var finalTranscriptTextView: TextView
-    private lateinit var jobTreadOrganizationTextView: TextView
-    private lateinit var refreshJobTreadOrganizationsButton: Button
-    private lateinit var jobTreadOrganizationOptionsContainer: LinearLayout
-    private lateinit var jobTreadLookupTextView: TextView
-    private lateinit var createTodoReadinessTextView: TextView
-    private lateinit var createTodoBlockersTextView: TextView
-    private lateinit var createTodoSummaryTextView: TextView
-    private lateinit var createTodoExecutionTextView: TextView
-    private lateinit var confirmCreateTodoButton: Button
-    private lateinit var unconfirmCreateTodoButton: Button
-    private lateinit var sendCreateTodoButton: Button
-    private lateinit var statusTextView: TextView
+    // The phone-test launch screen intentionally omits the secondary dev/debug UI.
+    private var devInfoContainer: LinearLayout? = null
+    private var activeSessionContainer: LinearLayout? = null
+    private var activeSessionTextView: TextView? = null
+    private var draftListContainer: LinearLayout? = null
+    private var emptyDraftsTextView: TextView? = null
+    private var assistantMessageTextView: TextView? = null
+    private var partialTranscriptTextView: TextView? = null
+    private var finalTranscriptTextView: TextView? = null
+    private var jobTreadOrganizationTextView: TextView? = null
+    private var refreshJobTreadOrganizationsButton: Button? = null
+    private var jobTreadOrganizationOptionsContainer: LinearLayout? = null
+    private var jobTreadLookupTextView: TextView? = null
+    private var createTodoReadinessTextView: TextView? = null
+    private var createTodoBlockersTextView: TextView? = null
+    private var createTodoSummaryTextView: TextView? = null
+    private var createTodoExecutionTextView: TextView? = null
+    private var confirmCreateTodoButton: Button? = null
+    private var unconfirmCreateTodoButton: Button? = null
+    private var sendCreateTodoButton: Button? = null
+    private var statusTextView: TextView? = null
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val mainExecutor = Executor { command -> mainHandler.post(command) }
@@ -73,6 +75,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        actionBar?.hide()
         setContentView(R.layout.activity_main)
 
         bindViews()
@@ -110,26 +113,6 @@ class MainActivity : Activity() {
 
     private fun bindViews() {
         primarySessionButton = findViewById(R.id.primarySessionButton)
-        devInfoContainer = findViewById(R.id.devInfoContainer)
-        activeSessionContainer = findViewById(R.id.activeSessionContainer)
-        activeSessionTextView = findViewById(R.id.activeSessionTextView)
-        draftListContainer = findViewById(R.id.draftListContainer)
-        emptyDraftsTextView = findViewById(R.id.emptyDraftsTextView)
-        assistantMessageTextView = findViewById(R.id.assistantMessageTextView)
-        partialTranscriptTextView = findViewById(R.id.partialTranscriptTextView)
-        finalTranscriptTextView = findViewById(R.id.finalTranscriptTextView)
-        jobTreadOrganizationTextView = findViewById(R.id.jobTreadOrganizationTextView)
-        refreshJobTreadOrganizationsButton = findViewById(R.id.refreshJobTreadOrganizationsButton)
-        jobTreadOrganizationOptionsContainer = findViewById(R.id.jobTreadOrganizationOptionsContainer)
-        jobTreadLookupTextView = findViewById(R.id.jobTreadLookupTextView)
-        createTodoReadinessTextView = findViewById(R.id.createTodoReadinessTextView)
-        createTodoBlockersTextView = findViewById(R.id.createTodoBlockersTextView)
-        createTodoSummaryTextView = findViewById(R.id.createTodoSummaryTextView)
-        createTodoExecutionTextView = findViewById(R.id.createTodoExecutionTextView)
-        confirmCreateTodoButton = findViewById(R.id.confirmCreateTodoButton)
-        unconfirmCreateTodoButton = findViewById(R.id.unconfirmCreateTodoButton)
-        sendCreateTodoButton = findViewById(R.id.sendCreateTodoButton)
-        statusTextView = findViewById(R.id.statusTextView)
     }
 
     private fun initializeVoiceRuntime() {
@@ -173,6 +156,18 @@ class MainActivity : Activity() {
             speechRecognizerGateway = recognizer,
             eventExecutor = mainExecutor,
             turnExecutor = turnExecutor,
+            onTurnFailure = { exception ->
+                mainExecutor.execute {
+                    setStatusNotice(
+                        message = getString(
+                            R.string.voice_chat_failed,
+                            exception.message ?: exception::class.java.simpleName,
+                        ),
+                        isCritical = true,
+                    )
+                    renderState(store.load())
+                }
+            },
         )
     }
 
@@ -181,19 +176,19 @@ class MainActivity : Activity() {
             handlePrimarySessionAction()
         }
 
-        refreshJobTreadOrganizationsButton.setOnClickListener {
+        refreshJobTreadOrganizationsButton?.setOnClickListener {
             refreshJobTreadOrganizations()
         }
 
-        confirmCreateTodoButton.setOnClickListener {
+        confirmCreateTodoButton?.setOnClickListener {
             updateCreateTodoConfirmation(confirmed = true)
         }
 
-        unconfirmCreateTodoButton.setOnClickListener {
+        unconfirmCreateTodoButton?.setOnClickListener {
             updateCreateTodoConfirmation(confirmed = false)
         }
 
-        sendCreateTodoButton.setOnClickListener {
+        sendCreateTodoButton?.setOnClickListener {
             executeCreateTodo()
         }
     }
@@ -202,17 +197,23 @@ class MainActivity : Activity() {
         pendingResumeAfterPermission = false
         clearStatusNotice()
         try {
-            if (isOpenAiConfigured() && hasRecordAudioPermission()) {
-                voiceTurnController.startSession(initialAssistantMessage)
-            } else {
-                sessionLoopService.startNewSession()
-                setStatusNotice(
-                    message = when {
-                        !isOpenAiConfigured() -> getString(R.string.missing_openai_api_key)
-                        else -> getString(R.string.session_created_resume_when_ready)
-                    },
-                    isCritical = true,
-                )
+            when {
+                !isOpenAiConfigured() -> {
+                    setStatusNotice(
+                        message = getString(R.string.missing_openai_api_key),
+                        isCritical = true,
+                    )
+                }
+
+                hasRecordAudioPermission() -> {
+                    voiceTurnController.startSession(initialAssistantMessage)
+                }
+
+                else -> {
+                    sessionLoopService.startNewSession()
+                    pendingResumeAfterPermission = true
+                    requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), requestRecordAudioCode)
+                }
             }
         } catch (exception: Exception) {
             setStatusNotice(
@@ -408,6 +409,11 @@ class MainActivity : Activity() {
     }
 
     private fun renderState(state: WizardAppState) {
+        renderPrimarySessionButton(state)
+        if (devInfoContainer == null) {
+            return
+        }
+
         val draft = state.displayDraft()
         val createTodo = draft?.createTodo
         val inboxState = DraftInboxViewStateFactory.create(state)
@@ -416,26 +422,25 @@ class MainActivity : Activity() {
         renderDraftList(inboxState, state)
         renderJobTreadOrganizationSelection(state.jobTreadOrganizationSelection)
 
-        assistantMessageTextView.text = state.displayAssistantMessage(draft)
-        partialTranscriptTextView.text = state.session.speechRecognition.partialTranscript
+        assistantMessageTextView?.text = state.displayAssistantMessage(draft)
+        partialTranscriptTextView?.text = state.session.speechRecognition.partialTranscript
             ?: getString(R.string.empty_partial_transcript)
-        finalTranscriptTextView.text = draft?.committedTranscriptText()
+        finalTranscriptTextView?.text = draft?.committedTranscriptText()
             ?: getString(R.string.empty_committed_transcript)
-        jobTreadLookupTextView.text = draft?.jobTreadLookup?.summaryText()
+        jobTreadLookupTextView?.text = draft?.jobTreadLookup?.summaryText()
             ?: getString(R.string.empty_jobtread_lookup)
         renderCreateTodoReview(draft)
-        statusTextView.text = buildStatusText(state)
-        renderPrimarySessionButton(state)
-        devInfoContainer.visibility = View.GONE
+        statusTextView?.text = buildStatusText(state)
+        devInfoContainer?.visibility = View.GONE
 
         val sessionBusy = state.session.phase in activeSessionPhases
-        refreshJobTreadOrganizationsButton.isEnabled = !sessionBusy
-        confirmCreateTodoButton.isEnabled = !sessionBusy &&
+        refreshJobTreadOrganizationsButton?.isEnabled = !sessionBusy
+        confirmCreateTodoButton?.isEnabled = !sessionBusy &&
             createTodo != null &&
             createTodo.readinessStatus == CreateTodoReadinessStatus.READY_FOR_CONFIRMATION &&
             !createTodo.isConfirmed
-        unconfirmCreateTodoButton.isEnabled = !sessionBusy && createTodo?.isConfirmed == true
-        sendCreateTodoButton.isEnabled = !sessionBusy &&
+        unconfirmCreateTodoButton?.isEnabled = !sessionBusy && createTodo?.isConfirmed == true
+        sendCreateTodoButton?.isEnabled = !sessionBusy &&
             createTodo != null &&
             createTodo.readinessStatus == CreateTodoReadinessStatus.READY_FOR_CONFIRMATION &&
             createTodo.isConfirmed &&
@@ -451,15 +456,17 @@ class MainActivity : Activity() {
     }
 
     private fun renderActiveSession(inboxState: DraftInboxViewState) {
+        val container = activeSessionContainer ?: return
+        val textView = activeSessionTextView ?: return
         val activeSession = inboxState.activeSession
         if (activeSession == null) {
-            activeSessionContainer.visibility = View.GONE
-            activeSessionTextView.text = ""
+            container.visibility = View.GONE
+            textView.text = ""
             return
         }
 
-        activeSessionContainer.visibility = View.VISIBLE
-        activeSessionTextView.text = buildString {
+        container.visibility = View.VISIBLE
+        textView.text = buildString {
             appendLine(
                 if (activeSession.isRecoverablePaused) {
                     getString(R.string.recoverable_paused_session_label)
@@ -488,19 +495,20 @@ class MainActivity : Activity() {
         inboxState: DraftInboxViewState,
         state: WizardAppState,
     ) {
-        draftListContainer.removeAllViews()
-        emptyDraftsTextView.visibility = if (inboxState.drafts.isEmpty()) View.VISIBLE else View.GONE
+        val container = draftListContainer ?: return
+        container.removeAllViews()
+        emptyDraftsTextView?.visibility = if (inboxState.drafts.isEmpty()) View.VISIBLE else View.GONE
 
         val sessionBusy = state.session.phase in activeSessionPhases
         inboxState.drafts.forEachIndexed { index, item ->
-            draftListContainer.addView(
+            container.addView(
                 buildDraftRow(
                     item = item,
                     enableResume = !sessionBusy && item.status == DraftStatus.IN_PROGRESS,
                 ),
             )
             if (index < inboxState.drafts.lastIndex) {
-                draftListContainer.addView(
+                container.addView(
                     View(this).apply {
                         layoutParams = LinearLayout.LayoutParams(
                             LinearLayout.LayoutParams.MATCH_PARENT,
@@ -517,15 +525,16 @@ class MainActivity : Activity() {
     }
 
     private fun renderJobTreadOrganizationSelection(selection: JobTreadOrganizationSelectionState) {
-        jobTreadOrganizationTextView.text = selection.summaryText()
-        jobTreadOrganizationOptionsContainer.removeAllViews()
+        jobTreadOrganizationTextView?.text = selection.summaryText()
+        val optionsContainer = jobTreadOrganizationOptionsContainer ?: return
+        optionsContainer.removeAllViews()
 
         if (selection.organizations.size <= 1) {
             return
         }
 
         selection.organizations.forEach { organization ->
-            jobTreadOrganizationOptionsContainer.addView(
+            optionsContainer.addView(
                 Button(this).apply {
                     val isDefault = organization.id == selection.defaultOrganizationId
                     text = if (isDefault) {
@@ -545,10 +554,10 @@ class MainActivity : Activity() {
     private fun renderCreateTodoReview(draft: WizardDraft?) {
         val createTodo = draft?.createTodo
         if (createTodo == null) {
-            createTodoReadinessTextView.text = getString(R.string.empty_create_todo_readiness)
-            createTodoBlockersTextView.text = getString(R.string.empty_create_todo_blockers)
-            createTodoSummaryTextView.text = getString(R.string.empty_create_todo_summary)
-            createTodoExecutionTextView.text = getString(R.string.empty_create_todo_execution)
+            createTodoReadinessTextView?.text = getString(R.string.empty_create_todo_readiness)
+            createTodoBlockersTextView?.text = getString(R.string.empty_create_todo_blockers)
+            createTodoSummaryTextView?.text = getString(R.string.empty_create_todo_summary)
+            createTodoExecutionTextView?.text = getString(R.string.empty_create_todo_execution)
             return
         }
 
@@ -557,12 +566,12 @@ class MainActivity : Activity() {
         } else {
             ""
         }
-        createTodoReadinessTextView.text = getString(
+        createTodoReadinessTextView?.text = getString(
             R.string.create_todo_state,
             createTodo.readinessStatus.name,
             confirmedSuffix,
         )
-        createTodoBlockersTextView.text = if (createTodo.blockers.isEmpty()) {
+        createTodoBlockersTextView?.text = if (createTodo.blockers.isEmpty()) {
             getString(R.string.empty_create_todo_blockers)
         } else {
             getString(
@@ -570,7 +579,7 @@ class MainActivity : Activity() {
                 createTodo.blockers.joinToString(separator = "\n") { blocker -> "- ${blocker.message}" },
             )
         }
-        createTodoSummaryTextView.text = createTodo.confirmationSummary?.let { summary ->
+        createTodoSummaryTextView?.text = createTodo.confirmationSummary?.let { summary ->
             getString(
                 R.string.create_todo_summary_format,
                 summary.organizationName,
@@ -578,7 +587,7 @@ class MainActivity : Activity() {
                 summary.title,
             )
         } ?: getString(R.string.empty_create_todo_summary)
-        createTodoExecutionTextView.text = when (createTodo.execution.status) {
+        createTodoExecutionTextView?.text = when (createTodo.execution.status) {
             CreateTodoExecutionStatus.IDLE -> getString(R.string.empty_create_todo_execution)
             CreateTodoExecutionStatus.SENDING -> getString(R.string.create_todo_sending)
             CreateTodoExecutionStatus.SUCCESS -> createTodo.execution.createdTodo?.let { result ->
@@ -706,8 +715,12 @@ class MainActivity : Activity() {
         isCritical: Boolean = false,
     ) {
         statusNotice = message
-        if (isCritical) {
-            // Notices now render in Dev Info only, but callers still distinguish critical cases.
+        mainHandler.post {
+            Toast.makeText(
+                applicationContext,
+                message,
+                if (isCritical) Toast.LENGTH_LONG else Toast.LENGTH_SHORT,
+            ).show()
         }
     }
 

@@ -31,7 +31,7 @@
     <string name="empty_create_todo_blockers">No create_todo blockers yet.</string>
     <string name="empty_create_todo_summary">No local confirmation summary yet.</string>
     <string name="empty_create_todo_execution">No create_todo send result yet.</string>
-    <string name="missing_openai_api_key">OPENAI_API_KEY is missing. Rebuild the demo app with the key in your environment.</string>
+    <string name="missing_openai_api_key">OPENAI_API_KEY is missing. Add it to the root local.properties for Android Studio/device testing, a Gradle property, or your environment, then rebuild the demo app.</string>
     <string name="record_audio_permission_denied">Microphone permission is required for the spoken turn demo.</string>
     <string name="session_created_resume_when_ready">Session created. Resume the voice loop when microphone access is ready.</string>
     <string name="draft_selected_resume_when_ready">Draft selected. Resume the voice loop when microphone access is ready.</string>
@@ -40,6 +40,7 @@
     <string name="resume_draft_failed_with_reason">Resume draft failed: %1$s</string>
     <string name="no_active_session">No active session selected.</string>
     <string name="start_session_failed">Start session failed: %1$s</string>
+    <string name="voice_chat_failed">Voice chat failed: %1$s</string>
     <string name="active_session_label">Active session</string>
     <string name="recoverable_paused_session_label">Recoverable paused session</string>
     <string name="active_session_summary">%1$s | %2$s | %3$d turns</string>

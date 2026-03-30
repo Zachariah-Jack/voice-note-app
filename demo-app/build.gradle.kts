@@ -1,3 +1,4 @@
+import java.util.Properties
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -7,14 +8,33 @@ plugins {
 
 fun String.escapeForBuildConfig(): String = replace("\\", "\\\\").replace("\"", "\\\"")
 
-val openAiApiKey = (System.getenv("OPENAI_API_KEY") ?: "").escapeForBuildConfig()
-val openAiWizardModel = (System.getenv("OPENAI_WIZARD_MODEL")
-    ?: "gpt-5.4-nano").escapeForBuildConfig()
-val openAiBaseUrl = (System.getenv("OPENAI_BASE_URL")
-    ?: "https://api.openai.com/v1").escapeForBuildConfig()
-val openAiOrganization = (System.getenv("OPENAI_ORGANIZATION") ?: "").escapeForBuildConfig()
-val jobTreadPaveUrl = (System.getenv("JOBTREAD_PAVE_URL") ?: "").escapeForBuildConfig()
-val jobTreadGrantKey = (System.getenv("JOBTREAD_GRANT_KEY") ?: "").escapeForBuildConfig()
+val localProperties = Properties().apply {
+    val localPropertiesFile = rootProject.file("local.properties")
+    if (localPropertiesFile.isFile) {
+        localPropertiesFile.inputStream().use(::load)
+    }
+}
+
+fun configuredBuildConfigValue(
+    name: String,
+    defaultValue: String = "",
+): String {
+    val configuredValue = sequenceOf(
+        providers.gradleProperty(name).orNull,
+        localProperties.getProperty(name),
+        System.getenv(name),
+    ).mapNotNull { value -> value?.trim() }
+        .firstOrNull { value -> value.isNotEmpty() }
+        ?: defaultValue
+    return configuredValue.escapeForBuildConfig()
+}
+
+val openAiApiKey = configuredBuildConfigValue("OPENAI_API_KEY")
+val openAiWizardModel = configuredBuildConfigValue("OPENAI_WIZARD_MODEL", "gpt-5.4-nano")
+val openAiBaseUrl = configuredBuildConfigValue("OPENAI_BASE_URL", "https://api.openai.com/v1")
+val openAiOrganization = configuredBuildConfigValue("OPENAI_ORGANIZATION")
+val jobTreadPaveUrl = configuredBuildConfigValue("JOBTREAD_PAVE_URL")
+val jobTreadGrantKey = configuredBuildConfigValue("JOBTREAD_GRANT_KEY")
 
 repositories {
     google()
@@ -24,6 +44,7 @@ repositories {
 android {
     namespace = "app.voicenote.demo"
     compileSdk = 35
+    buildToolsVersion = "35.0.0"
 
     defaultConfig {
         applicationId = "app.voicenote.demo"

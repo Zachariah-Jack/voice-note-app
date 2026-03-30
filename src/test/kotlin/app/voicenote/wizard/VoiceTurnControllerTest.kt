@@ -249,6 +249,7 @@ class VoiceTurnControllerTest {
         val store = JsonFileAppStateStore(stateFile)
         val speaker = RecordingAssistantSpeaker()
         val recognizer = RecordingSpeechRecognizerGateway()
+        var reportedFailureMessage: String? = null
         val service = SessionLoopService(
             store = store,
             wizardTurnClient = ThrowingWizardTurnClient(),
@@ -261,6 +262,9 @@ class VoiceTurnControllerTest {
             sessionLoopService = service,
             speechRecognizerGateway = recognizer,
             clock = StepClock(startAt = 50_000L),
+            onTurnFailure = { exception ->
+                reportedFailureMessage = exception.message
+            },
         )
 
         controller.startSession("Continuous loop prompt")
@@ -281,6 +285,7 @@ class VoiceTurnControllerTest {
             SpeechRecognitionEventType.ERROR,
             persistedState.session.speechRecognition.errorType,
         )
+        assertEquals("Simulated hard failure", reportedFailureMessage)
 
         controller.resumeSession()
         val afterResume = JsonFileAppStateStore(stateFile).load()
