@@ -26,7 +26,7 @@ data class OpenAiWizardClientConfig(
     val timeoutMillis: Long = 30_000L,
 ) {
     companion object {
-        const val DEFAULT_MODEL = "gpt-5.4-nano"
+        const val DEFAULT_MODEL = "gpt-5-nano"
         const val DEFAULT_BASE_URL = "https://api.openai.com/v1"
 
         fun fromEnvironment(env: Map<String, String> = System.getenv()): OpenAiWizardClientConfig {

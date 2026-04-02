@@ -8,12 +8,15 @@ plugins {
 
 fun String.escapeForBuildConfig(): String = replace("\\", "\\\\").replace("\"", "\\\"")
 
-val localProperties = Properties().apply {
-    val localPropertiesFile = rootProject.file("local.properties")
-    if (localPropertiesFile.isFile) {
-        localPropertiesFile.inputStream().use(::load)
+fun loadOptionalProperties(fileName: String): Properties = Properties().apply {
+    val propertiesFile = rootProject.file(fileName)
+    if (propertiesFile.isFile) {
+        propertiesFile.inputStream().use(::load)
     }
 }
+
+val demoAppLocalProperties = loadOptionalProperties("demo-app.local.properties")
+val localProperties = loadOptionalProperties("local.properties")
 
 fun configuredBuildConfigValue(
     name: String,
@@ -21,6 +24,7 @@ fun configuredBuildConfigValue(
 ): String {
     val configuredValue = sequenceOf(
         providers.gradleProperty(name).orNull,
+        demoAppLocalProperties.getProperty(name),
         localProperties.getProperty(name),
         System.getenv(name),
     ).mapNotNull { value -> value?.trim() }
@@ -30,7 +34,7 @@ fun configuredBuildConfigValue(
 }
 
 val openAiApiKey = configuredBuildConfigValue("OPENAI_API_KEY")
-val openAiWizardModel = configuredBuildConfigValue("OPENAI_WIZARD_MODEL", "gpt-5.4-nano")
+val openAiWizardModel = configuredBuildConfigValue("OPENAI_WIZARD_MODEL", "gpt-5-nano")
 val openAiBaseUrl = configuredBuildConfigValue("OPENAI_BASE_URL", "https://api.openai.com/v1")
 val openAiOrganization = configuredBuildConfigValue("OPENAI_ORGANIZATION")
 val jobTreadPaveUrl = configuredBuildConfigValue("JOBTREAD_PAVE_URL")

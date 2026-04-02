@@ -2,3 +2,5 @@
 /.tools/
 **/build/
 /local.properties
+/demo-app.local.properties
+/.gradle-ro-cache/

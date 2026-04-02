@@ -175,22 +175,6 @@ class MainActivity : Activity() {
         primarySessionButton.setOnClickListener {
             handlePrimarySessionAction()
         }
-
-        refreshJobTreadOrganizationsButton?.setOnClickListener {
-            refreshJobTreadOrganizations()
-        }
-
-        confirmCreateTodoButton?.setOnClickListener {
-            updateCreateTodoConfirmation(confirmed = true)
-        }
-
-        unconfirmCreateTodoButton?.setOnClickListener {
-            updateCreateTodoConfirmation(confirmed = false)
-        }
-
-        sendCreateTodoButton?.setOnClickListener {
-            executeCreateTodo()
-        }
     }
 
     private fun startNewSessionFromInbox() {
@@ -200,7 +184,7 @@ class MainActivity : Activity() {
             when {
                 !isOpenAiConfigured() -> {
                     setStatusNotice(
-                        message = getString(R.string.missing_openai_api_key),
+                        message = missingOpenAiApiKeyMessage(),
                         isCritical = true,
                     )
                 }
@@ -239,7 +223,7 @@ class MainActivity : Activity() {
             } else {
                 setStatusNotice(
                     message = when {
-                        !isOpenAiConfigured() -> getString(R.string.missing_openai_api_key)
+                        !isOpenAiConfigured() -> missingOpenAiApiKeyMessage()
                         else -> getString(R.string.draft_selected_resume_when_ready)
                     },
                     isCritical = true,
@@ -266,7 +250,7 @@ class MainActivity : Activity() {
             return
         }
         if (!isOpenAiConfigured()) {
-            setStatusNotice(getString(R.string.missing_openai_api_key), isCritical = true)
+            setStatusNotice(missingOpenAiApiKeyMessage(), isCritical = true)
             renderState(state)
             return
         }
@@ -409,43 +393,8 @@ class MainActivity : Activity() {
     }
 
     private fun renderState(state: WizardAppState) {
+        // The phone-test activity intentionally exposes only the primary voice control.
         renderPrimarySessionButton(state)
-        if (devInfoContainer == null) {
-            return
-        }
-
-        val draft = state.displayDraft()
-        val createTodo = draft?.createTodo
-        val inboxState = DraftInboxViewStateFactory.create(state)
-
-        renderActiveSession(inboxState)
-        renderDraftList(inboxState, state)
-        renderJobTreadOrganizationSelection(state.jobTreadOrganizationSelection)
-
-        assistantMessageTextView?.text = state.displayAssistantMessage(draft)
-        partialTranscriptTextView?.text = state.session.speechRecognition.partialTranscript
-            ?: getString(R.string.empty_partial_transcript)
-        finalTranscriptTextView?.text = draft?.committedTranscriptText()
-            ?: getString(R.string.empty_committed_transcript)
-        jobTreadLookupTextView?.text = draft?.jobTreadLookup?.summaryText()
-            ?: getString(R.string.empty_jobtread_lookup)
-        renderCreateTodoReview(draft)
-        statusTextView?.text = buildStatusText(state)
-        devInfoContainer?.visibility = View.GONE
-
-        val sessionBusy = state.session.phase in activeSessionPhases
-        refreshJobTreadOrganizationsButton?.isEnabled = !sessionBusy
-        confirmCreateTodoButton?.isEnabled = !sessionBusy &&
-            createTodo != null &&
-            createTodo.readinessStatus == CreateTodoReadinessStatus.READY_FOR_CONFIRMATION &&
-            !createTodo.isConfirmed
-        unconfirmCreateTodoButton?.isEnabled = !sessionBusy && createTodo?.isConfirmed == true
-        sendCreateTodoButton?.isEnabled = !sessionBusy &&
-            createTodo != null &&
-            createTodo.readinessStatus == CreateTodoReadinessStatus.READY_FOR_CONFIRMATION &&
-            createTodo.isConfirmed &&
-            createTodo.execution.status != CreateTodoExecutionStatus.SENDING &&
-            createTodo.execution.status != CreateTodoExecutionStatus.SUCCESS
     }
 
     private fun renderPrimarySessionButton(state: WizardAppState) {
@@ -726,6 +675,11 @@ class MainActivity : Activity() {
 
     private fun hasRecordAudioPermission(): Boolean =
         checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+
+    private fun missingOpenAiApiKeyMessage(): String =
+        "OPENAI_API_KEY is missing. Add it to the repo-root demo-app.local.properties " +
+            "for Android Studio/device testing, a Gradle property, local.properties, " +
+            "or your environment, then rebuild the demo app."
 
     private fun isOpenAiConfigured(): Boolean = BuildConfig.OPENAI_API_KEY.isNotBlank()
 

@@ -1,0 +1,13 @@
+# Copy these entries into ./demo-app.local.properties.
+# This keeps Android Studio's ./local.properties and sdk.dir intact.
+# Required for the current phone-testable voice loop:
+OPENAI_API_KEY=sk-...
+
+# Optional OpenAI overrides:
+OPENAI_WIZARD_MODEL=gpt-5-nano
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_ORGANIZATION=
+
+# Optional until JobTread discovery and follow-up actions are enabled:
+JOBTREAD_PAVE_URL=
+JOBTREAD_GRANT_KEY=

@@ -111,6 +111,17 @@ class OpenAiWizardTurnClientTest {
         )
     }
 
+    @Test
+    fun `environment config falls back to the current default model`() {
+        val config = OpenAiWizardClientConfig.fromEnvironment(
+            env = mapOf(
+                "OPENAI_API_KEY" to "test-key",
+            ),
+        )
+
+        assertEquals("gpt-5-nano", config.model)
+    }
+
     private class StubOpenAiResponsesTransport(
         private val responseBody: String,
     ) : OpenAiResponsesTransport {
